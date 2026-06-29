@@ -1,3 +1,4 @@
+import { profileBySlug } from "@/lib/demoProfiles";
 import {
   ROSTER_YOUTUBE_CHANNEL_IDS,
   ROSTER_YOUTUBE_HANDLES,
@@ -145,6 +146,7 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
   const channels = await listChannels();
   const existingShows = await listShows();
   const videoIds = new Set(existingShows.map((s) => s.youtubeVideoId).filter(Boolean));
+  const syncedSlugs = new Set<string>();
 
   for (const channel of channels) {
     try {
@@ -175,6 +177,7 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
         socialLinks,
       });
       result.channelsUpdated++;
+      syncedSlugs.add(channel.slug);
 
       const uploads = payload.contentDetails?.relatedPlaylists?.uploads;
       if (!uploads) continue;
@@ -206,6 +209,20 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
     } catch (e) {
       result.errors.push(`${channel.slug}: ${e instanceof Error ? e.message : "sync failed"}`);
     }
+  }
+
+  for (const channel of channels) {
+    if (syncedSlugs.has(channel.slug)) continue;
+    const profile = profileBySlug(channel.slug);
+    if (!profile) continue;
+    await updateChannel(channel.id, {
+      descriptionTemplate: profile.descriptionTemplate,
+      tags: profile.tags,
+      socialLinks: { ...profile.socialLinks, ...channel.socialLinks },
+      channelTrailerDraft: channel.channelTrailerDraft ?? profile.channelTrailerDraft,
+    });
+    result.channelsUpdated++;
+    result.errors.push(`${channel.slug}: no public YouTube yet · using roster copy until UC ID added`);
   }
 
   result.ok = result.channelsUpdated > 0;

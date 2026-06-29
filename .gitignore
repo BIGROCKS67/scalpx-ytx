@@ -1,6 +1,7 @@
 node_modules
 .next
 data/*
+!data/roster-channel-ids.json
 !data/roster-channel-ids.example.json
 .env.local
 *.tsbuildinfo
