@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { filterActiveChannels, isActiveChannelSlug } from "@/lib/activeChannels";
 import { CHECKLIST_TASKS } from "@/lib/checklistTasks";
 import { getDb, parseJsonArray, parseJsonObject, runWithDb } from "@/lib/db";
 import { defaultPipelineForFormat, isLiveOnlyTask } from "@/lib/pipelines";
@@ -37,6 +38,7 @@ function rowToChannel(row: Record<string, unknown>): YtChannel {
     showFormats: parseJsonArray<ShowFormat>(row.showFormatsJson),
     isShowFormat: Boolean(row.isShowFormat),
     oauthConnected: Boolean(row.oauthConnected),
+    avatarUrl: (row.avatarUrl as string) ?? null,
     channelTrailerDraft: parseTrailerDraft(row.channelTrailerDraftJson),
     createdAt: row.createdAt as string,
     updatedAt: row.updatedAt as string,
@@ -225,10 +227,12 @@ export async function seedChannels(): Promise<YtChannel[]> {
 
 function listChannelsSync(): YtChannel[] {
   const rows = getDb().prepare("SELECT * FROM channels").all() as Record<string, unknown>[];
-  const order = new Map(ROSTER_SLUG_ORDER.map((slug, i) => [slug, i]));
-  return rows
-    .map(rowToChannel)
-    .sort((a, b) => (order.get(a.slug) ?? 999) - (order.get(b.slug) ?? 999));
+  const order = new Map<string, number>(ROSTER_SLUG_ORDER.map((slug, i) => [slug, i]));
+  return filterActiveChannels(
+    rows
+      .map(rowToChannel)
+      .sort((a, b) => (order.get(a.slug) ?? 999) - (order.get(b.slug) ?? 999))
+  );
 }
 
 export async function listChannels(): Promise<YtChannel[]> {
@@ -256,6 +260,7 @@ export async function updateChannel(
       | "tags"
       | "socialLinks"
       | "oauthConnected"
+      | "avatarUrl"
       | "channelTrailerDraft"
     >
   >
@@ -277,6 +282,7 @@ export async function updateChannel(
       tags: patch.tags ?? existing.tags,
       socialLinks: patch.socialLinks ?? existing.socialLinks,
       oauthConnected: patch.oauthConnected ?? existing.oauthConnected,
+      avatarUrl: patch.avatarUrl !== undefined ? patch.avatarUrl : existing.avatarUrl,
       channelTrailerDraft:
         patch.channelTrailerDraft !== undefined
           ? patch.channelTrailerDraft
@@ -289,7 +295,7 @@ export async function updateChannel(
           displayName=@displayName, youtubeChannelId=@youtubeChannelId, trackAccountId=@trackAccountId,
           descriptionTemplate=@descriptionTemplate, tagsJson=@tagsJson,
           socialLinksJson=@socialLinksJson, oauthConnected=@oauthConnected,
-          channelTrailerDraftJson=@channelTrailerDraftJson, updatedAt=@updatedAt
+          avatarUrl=@avatarUrl, channelTrailerDraftJson=@channelTrailerDraftJson, updatedAt=@updatedAt
          WHERE id=@id`
       )
       .run({
@@ -301,6 +307,7 @@ export async function updateChannel(
         tagsJson: JSON.stringify(updated.tags),
         socialLinksJson: JSON.stringify(updated.socialLinks),
         oauthConnected: updated.oauthConnected ? 1 : 0,
+        avatarUrl: updated.avatarUrl,
         channelTrailerDraftJson: updated.channelTrailerDraft
           ? JSON.stringify(updated.channelTrailerDraft)
           : null,
@@ -319,13 +326,21 @@ function getChannelSync(id: string): YtChannel | null {
 
 export async function listShows(channelId?: string): Promise<ShowRun[]> {
   return runWithDb(() => {
-    const rows = channelId
-      ? (getDb()
-          .prepare("SELECT * FROM show_runs WHERE channelId = ? ORDER BY scheduledAt DESC")
-          .all(channelId) as Record<string, unknown>[])
-      : (getDb()
-          .prepare("SELECT * FROM show_runs ORDER BY createdAt DESC")
-          .all() as Record<string, unknown>[]);
+    const activeIds = listChannelsSync().map((c) => c.id);
+    if (!activeIds.length) return [];
+
+    if (channelId) {
+      if (!activeIds.includes(channelId)) return [];
+      const rows = getDb()
+        .prepare("SELECT * FROM show_runs WHERE channelId = ? ORDER BY scheduledAt DESC")
+        .all(channelId) as Record<string, unknown>[];
+      return rows.map(rowToShow);
+    }
+
+    const placeholders = activeIds.map(() => "?").join(", ");
+    const rows = getDb()
+      .prepare(`SELECT * FROM show_runs WHERE channelId IN (${placeholders}) ORDER BY createdAt DESC`)
+      .all(...activeIds) as Record<string, unknown>[];
     return rows.map(rowToShow);
   });
 }
@@ -335,7 +350,11 @@ export async function getShow(id: string): Promise<ShowRun | null> {
     const row = getDb().prepare("SELECT * FROM show_runs WHERE id = ?").get(id) as
       | Record<string, unknown>
       | undefined;
-    return row ? rowToShow(row) : null;
+    if (!row) return null;
+    const show = rowToShow(row);
+    const channel = getChannelSync(show.channelId);
+    if (channel && !isActiveChannelSlug(channel.slug)) return null;
+    return show;
   });
 }
 
@@ -768,36 +787,11 @@ export async function listCommentReplies(showRunId: string): Promise<CommentRepl
   });
 }
 
-export async function seedCommentQueue(showRunId: string, showTitle: string): Promise<CommentReply[]> {
-  return runWithDb(() => {
-    const existing = getDb()
-      .prepare("SELECT COUNT(*) as n FROM comment_replies WHERE showRunId = ?")
-      .get(showRunId) as { n: number };
-    if (existing.n > 0) {
-      return listCommentRepliesSync(showRunId);
-    }
-    const now = new Date().toISOString();
-    const samples = [
-      { authorHint: "@viewer1", commentText: "What platform do you trade on?", draftReply: `Great question - we cover that in ${showTitle}. Check the pinned link in the description.` },
-      { authorHint: "@viewer2", commentText: "When is the next stream?", draftReply: "Next show is on the community tab - hit the bell so you don't miss it." },
-      { authorHint: "@viewer3", commentText: "Can you explain that setup again?", draftReply: "Timestamped in the description - jump to the chapter breakdown for the full walkthrough." },
-    ];
-    const stmt = getDb().prepare(
-      `INSERT INTO comment_replies (id, showRunId, authorHint, commentText, draftReply, status, createdAt, updatedAt)
-       VALUES (@id, @showRunId, @authorHint, @commentText, @draftReply, @status, @createdAt, @updatedAt)`
-    );
-    for (const s of samples) {
-      stmt.run({
-        id: randomUUID(),
-        showRunId,
-        ...s,
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    return listCommentRepliesSync(showRunId);
-  });
+export async function seedCommentQueue(showRunId: string, _showTitle?: string): Promise<CommentReply[]> {
+  const show = await getShow(showRunId);
+  if (!show?.youtubeVideoId) return listCommentRepliesSync(showRunId);
+  const { syncCommentsFromYoutube } = await import("@/lib/youtube/comments");
+  return syncCommentsFromYoutube(showRunId, show.channelId, show.youtubeVideoId);
 }
 
 function listCommentRepliesSync(showRunId: string): CommentReply[] {
@@ -911,14 +905,11 @@ export async function getDashboardBundle() {
 }
 
 export async function ensureRosterData(): Promise<void> {
+  const { purgeFakeData } = await import("@/lib/dataHygiene");
+  await purgeFakeData();
   await seedChannels();
   const { syncRosterFromYoutube } = await import("@/lib/youtube/rosterSync");
   await syncRosterFromYoutube();
-  if (process.env.YTX_DEMO_SEED === "true") {
-    const demo = await import("@/lib/demoSeed");
-    await demo.enrichChannelProfiles();
-    await demo.seedDemoContent();
-  }
 }
 
 /** @deprecated use ensureRosterData */

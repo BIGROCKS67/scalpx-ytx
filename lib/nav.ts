@@ -1,8 +1,8 @@
 /** Single source of truth for YTX app navigation. */
 export const APP_NAV = [
   { href: "/", label: "Home" },
-  { href: "/channels", label: "Roster" },
   { href: "/shows", label: "Shows" },
+  { href: "/channels", label: "Roster" },
   { href: "/settings", label: "Settings" },
 ] as const;
 

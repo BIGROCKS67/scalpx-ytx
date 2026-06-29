@@ -54,7 +54,31 @@ FLOWX_SCOUT_SERVICE_KEY=...
 
 Run Scout on `:3000`, YTX on `:3001`. Adapters call Clips · Content · Deals · Track APIs.
 
-## Docs
+## Live demo (Vercel)
+
+**URL:** https://scalpx-ytx.vercel.app/ytx
+
+Set these in the **Vercel project → Environment Variables** (then redeploy):
+
+| Variable | Value |
+|----------|--------|
+| `YTX_YOUTUBE_API_KEY` | Your YouTube Data API key (roster sync + read) |
+| `YTX_APP_URL` | `https://scalpx-ytx.vercel.app` |
+| `YTX_GOOGLE_CLIENT_ID` | Optional until Full E2E / OAuth connect |
+| `YTX_GOOGLE_CLIENT_SECRET` | Optional until Full E2E |
+| `FLOWX_SCOUT_URL` | Optional — enables clips on demo host via Scout |
+
+**Preview run on the live URL** (no channel OAuth):
+
+1. Roster → **Sync from YouTube** (imports real Chento/Banter shows when API key is set)
+2. Open a show with a linked video → **Preview run (no OAuth)** → **Run preview**
+3. SEO, drafts, checklist, and verification log all work on Vercel
+4. Shorts MP4 export is skipped on Vercel (no ffmpeg) — use local `:3001` or Scout for clips
+
+Add OAuth redirect URI in GCP when ready for production writes:
+
+`https://scalpx-ytx.vercel.app/ytx/api/youtube/callback`
+
 
 | File | Purpose |
 |------|---------|

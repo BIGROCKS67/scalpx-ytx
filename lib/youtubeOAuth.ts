@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import type { AppSettings } from "@/lib/types";
+import { publicAppOrigin } from "@/lib/runtimeHost";
 
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
@@ -94,11 +95,7 @@ export async function refreshAccessToken(settings: AppSettings, refreshToken: st
 }
 
 function appOrigin(): string {
-  const configured = process.env.YTX_APP_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (vercel) return `https://${vercel.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
-  return "http://localhost:3001";
+  return publicAppOrigin();
 }
 
 export function appUrl(): string {

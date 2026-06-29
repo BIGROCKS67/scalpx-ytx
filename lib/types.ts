@@ -6,7 +6,7 @@ export type ShowPhase = "channel_setup" | "pre_show" | "live" | "post_show";
 export type TaskMode = "auto" | "assist" | "manual";
 export type TaskStatus = "pending" | "in_progress" | "done" | "skipped";
 export type QcStatus = "pending_qc" | "approved" | "rejected" | "published";
-export type ShowRunStatus = "draft" | "scheduled" | "live" | "completed";
+export type ShowRunStatus = "draft" | "scheduled" | "live" | "completed" | "blocked" | "preview";
 
 export type YtChannel = {
   id: string;
@@ -20,6 +20,7 @@ export type YtChannel = {
   showFormats: ShowFormat[];
   isShowFormat: boolean;
   oauthConnected: boolean;
+  avatarUrl: string | null;
   channelTrailerDraft: ChannelTrailerDraft | null;
   createdAt: string;
   updatedAt: string;

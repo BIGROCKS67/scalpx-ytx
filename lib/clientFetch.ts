@@ -1,6 +1,6 @@
 export type FetchResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; data?: T };
 
 export async function fetchJson<T>(
   url: string,
@@ -31,7 +31,7 @@ export async function fetchJson<T>(
         typeof (body as { error: unknown }).error === "string"
           ? (body as { error: string }).error
           : `Request failed (${res.status})`;
-      return { ok: false, error: msg, status: res.status };
+      return { ok: false, error: msg, status: res.status, data: body as T };
     }
     return { ok: true, data: body as T };
   } catch (e) {

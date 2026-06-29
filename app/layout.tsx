@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppSidebar } from "@/components/shell/AppSidebar";
+import { MobileTabBar } from "@/components/shell/MobileTabBar";
 import { AppChromeMeasure } from "@/components/AppChromeMeasure";
+import { withBasePath } from "@/lib/basePath";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,8 +21,8 @@ export const metadata: Metadata = {
   description: "Show lifecycle ops for ScalpX YouTube channels.",
   applicationName: "YTX",
   icons: {
-    icon: [{ url: "/ytx-logo.png", type: "image/png" }],
-    apple: [{ url: "/ytx-logo.png", type: "image/png" }],
+    icon: [{ url: withBasePath("/ytx-logo.svg"), type: "image/svg+xml" }],
+    apple: [{ url: withBasePath("/ytx-logo.png"), type: "image/png" }],
   },
 };
 
@@ -43,6 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AppSidebar />
           <AppChromeMeasure />
           <div className="ytx-main track-workspace">{children}</div>
+          <MobileTabBar />
         </div>
       </body>
     </html>

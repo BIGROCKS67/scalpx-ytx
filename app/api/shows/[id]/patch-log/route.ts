@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ACTION_TASKS, markTasksDone } from "@/lib/checklistAutomation";
 import { appendDescriptionPatch, getShow } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       snippet,
     };
     const updated = await appendDescriptionPatch(id, patch);
-    await markTasksDone(id, ACTION_TASKS.patchLog);
-    return NextResponse.json({ show: updated, patch });
+    return NextResponse.json({ show: updated, patch, draftOnly: true });
   } catch {
     return NextResponse.json({ error: "Patch log failed" }, { status: 500 });
   }

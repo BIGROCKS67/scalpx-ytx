@@ -9,6 +9,20 @@ export type LiveVideoStats = {
   source: "youtube_api" | "simulated";
 };
 
+export type VideoBroadcastState = {
+  videoId: string;
+  liveBroadcastContent: "none" | "live" | "upcoming" | "completed";
+  source: "youtube_api";
+};
+
+export type MetadataWriteResult = {
+  ok: boolean;
+  httpStatus: number;
+  error?: string;
+  videoId: string;
+  fields: string[];
+};
+
 async function resolveAccessToken(channelId: string): Promise<string | null> {
   const tokens = await getOAuthTokens(channelId);
   if (!tokens?.accessToken) return null;
@@ -44,24 +58,30 @@ async function ytGet<T>(
   accessToken: string,
   path: string,
   params: Record<string, string>
-): Promise<T | null> {
+): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   const qs = new URLSearchParams(params);
   const res = await fetch(`${YT_API}${path}?${qs}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) return null;
-  return res.json() as Promise<T>;
+  if (!res.ok) {
+    const error = await res.text();
+    return { ok: false, status: res.status, data: null, error: error.slice(0, 500) };
+  }
+  return { ok: true, status: res.status, data: (await res.json()) as T };
 }
 
 async function ytGetWithKey<T>(
   apiKey: string,
   path: string,
   params: Record<string, string>
-): Promise<T | null> {
+): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   const qs = new URLSearchParams({ ...params, key: apiKey });
   const res = await fetch(`${YT_API}${path}?${qs}`);
-  if (!res.ok) return null;
-  return res.json() as Promise<T>;
+  if (!res.ok) {
+    const error = await res.text();
+    return { ok: false, status: res.status, data: null, error: error.slice(0, 500) };
+  }
+  return { ok: true, status: res.status, data: (await res.json()) as T };
 }
 
 /** Read-only YouTube GET: OAuth first, then API key fallback. */
@@ -69,16 +89,16 @@ async function ytGetRead<T>(
   channelId: string,
   path: string,
   params: Record<string, string>
-): Promise<T | null> {
+): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   const token = await resolveAccessToken(channelId);
   if (token) {
-    const data = await ytGet<T>(token, path, params);
-    if (data) return data;
+    const oauth = await ytGet<T>(token, path, params);
+    if (oauth.ok && oauth.data) return oauth;
   }
 
   const apiKey = await resolveApiKey();
   if (apiKey) return ytGetWithKey<T>(apiKey, path, params);
-  return null;
+  return { ok: false, status: 0, data: null, error: "No YouTube credentials" };
 }
 
 /** Live concurrent viewers from YouTube Data API (OAuth or API key). */
@@ -86,7 +106,7 @@ export async function fetchLiveVideoStats(
   channelId: string,
   videoId: string
 ): Promise<LiveVideoStats | null> {
-  const data = await ytGetRead<{
+  const res = await ytGetRead<{
     items?: Array<{
       statistics?: { viewCount?: string };
       liveStreamingDetails?: { concurrentViewers?: string };
@@ -96,7 +116,7 @@ export async function fetchLiveVideoStats(
     id: videoId,
   });
 
-  const item = data?.items?.[0];
+  const item = res.data?.items?.[0];
   if (!item) return null;
 
   return {
@@ -108,21 +128,60 @@ export async function fetchLiveVideoStats(
   };
 }
 
+export async function fetchVideoBroadcastState(
+  channelId: string,
+  videoId: string
+): Promise<VideoBroadcastState | null> {
+  const res = await ytGetRead<{
+    items?: Array<{ snippet?: { liveBroadcastContent?: string } }>;
+  }>(channelId, "/videos", {
+    part: "snippet",
+    id: videoId,
+  });
+
+  const snippet = res.data?.items?.[0]?.snippet;
+  if (!snippet) return null;
+
+  const state = (snippet.liveBroadcastContent ?? "none") as VideoBroadcastState["liveBroadcastContent"];
+  return { videoId, liveBroadcastContent: state, source: "youtube_api" };
+}
+
 /** Patch video description + tags on YouTube (OAuth write scope). */
 export async function updateVideoMetadata(
   channelId: string,
   videoId: string,
   patch: { description?: string; tags?: string[]; title?: string }
-): Promise<boolean> {
+): Promise<MetadataWriteResult> {
+  const fields: string[] = [];
+  if (patch.title) fields.push("title");
+  if (patch.description) fields.push("description");
+  if (patch.tags) fields.push("tags");
+
   const token = await resolveAccessToken(channelId);
-  if (!token) return false;
+  if (!token) {
+    return {
+      ok: false,
+      httpStatus: 401,
+      error: "OAuth token missing — connect YouTube on roster",
+      videoId,
+      fields,
+    };
+  }
 
   const current = await ytGet<{
     items?: Array<{ snippet?: { title?: string; description?: string; tags?: string[]; categoryId?: string } }>;
   }>(token, "/videos", { part: "snippet", id: videoId });
 
-  const snippet = current?.items?.[0]?.snippet;
-  if (!snippet) return false;
+  const snippet = current.data?.items?.[0]?.snippet;
+  if (!snippet) {
+    return {
+      ok: false,
+      httpStatus: current.status || 404,
+      error: current.error ?? "Video not found on YouTube",
+      videoId,
+      fields,
+    };
+  }
 
   const body = {
     id: videoId,
@@ -142,19 +201,31 @@ export async function updateVideoMetadata(
     },
     body: JSON.stringify(body),
   });
-  return res.ok;
+
+  if (!res.ok) {
+    const error = await res.text();
+    return {
+      ok: false,
+      httpStatus: res.status,
+      error: error.slice(0, 500),
+      videoId,
+      fields,
+    };
+  }
+
+  return { ok: true, httpStatus: res.status, videoId, fields };
 }
 
 /** Channel subscriber count for waiting-room baseline comparison. */
 export async function fetchChannelBaseline(channelId: string, youtubeChannelId: string) {
-  const data = await ytGetRead<{
+  const res = await ytGetRead<{
     items?: Array<{ statistics?: { subscriberCount?: string; viewCount?: string } }>;
   }>(channelId, "/channels", {
     part: "statistics",
     id: youtubeChannelId,
   });
 
-  const stats = data?.items?.[0]?.statistics;
+  const stats = res.data?.items?.[0]?.statistics;
   if (!stats) return null;
   return {
     subscribers: stats.subscriberCount ? Number(stats.subscriberCount) : 0,
@@ -171,4 +242,15 @@ export async function youtubeApiReady(channelId: string): Promise<boolean> {
 export async function youtubeWriteReady(channelId: string): Promise<boolean> {
   const tokens = await getOAuthTokens(channelId);
   return Boolean(tokens?.accessToken);
+}
+
+export async function getYoutubeGlobalStatus() {
+  const settings = await getSettings();
+  const apiKey = Boolean(
+    settings.youtubeApiKey?.trim() || process.env.YTX_YOUTUBE_API_KEY?.trim()
+  );
+  const oauthConfig = Boolean(
+    settings.googleClientId?.trim() && settings.googleClientSecret?.trim()
+  );
+  return { apiKey, oauthConfig };
 }

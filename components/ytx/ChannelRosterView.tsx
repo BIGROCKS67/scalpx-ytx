@@ -111,7 +111,7 @@ export function ChannelRosterView() {
 
       <ContextHeader
         title="Roster"
-        subtitle="Live data from YouTube API · descriptions, tags, recent uploads"
+        subtitle="Active release: Chento Trades + Crypto Banter · connect OAuth before running end to end"
       />
 
       <div className="mb-4">

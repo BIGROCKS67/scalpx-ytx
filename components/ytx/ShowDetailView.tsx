@@ -14,15 +14,35 @@ import type {
   SponsorBlock,
   YtChannel,
 } from "@/lib/types";
-import { CHECKLIST_TASKS, taskById } from "@/lib/checklistTasks";
-import { PIPELINE_LABELS } from "@/lib/pipelines";
 import { PHASE_LABELS, PHASE_ORDER, type ShowPhase } from "@/lib/types";
 import { fetchJson } from "@/lib/clientFetch";
 import ErrorBanner from "@/components/ErrorBanner";
 import { Badge, Button, SegmentedControl } from "@/components/ui";
-import { ContextHeader } from "@/components/shell/ContextHeader";
 import { progressForShow } from "@/lib/dashboardInsights";
+import { taskById } from "@/lib/checklistTasks";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
+import { ReadinessPanel } from "@/components/ytx/ReadinessPanel";
+import { ShowVideoHero } from "@/components/ytx/ShowVideoHero";
+
+type PreflightPayload = {
+  ready: boolean;
+  blockers: { code: string; message: string; fix: string }[];
+  warnings: string[];
+  host?: {
+    serverless: boolean;
+    previewClips: "local" | "scout_or_skip";
+    persistData: boolean;
+    appOrigin: string;
+  };
+};
+
+type VerificationRow = {
+  id: string;
+  action: string;
+  ok: boolean;
+  source: string;
+  detail: string;
+};
 
 type ShowPayload = {
   show: ShowRun;
@@ -33,9 +53,27 @@ type ShowPayload = {
   analytics: AnalyticsSnapshot[];
   igCarousel: IgCarouselDraft | null;
   commentReplies: CommentReply[];
+  verification?: VerificationRow[];
+};
+
+type LifecycleResultPayload = {
+  ok: boolean;
+  blockers?: { code: string; message: string; fix: string }[];
+  steps: { step: string; ok: boolean; detail?: string; proof?: string }[];
+  proof: {
+    youtubeVideoId: string | null;
+    metadataWriteOk: boolean;
+    metadataWriteStatus: number | null;
+    analyticsSource: string;
+    clipsExportCount: number;
+    qcStillPending: string[];
+  };
+  checklist: { done: number; pending: number; autoDone: number; autoTotal: number };
 };
 
 type Tab = "checklist" | "pre_show" | "live" | "post_show";
+
+type RunMode = "full" | "metadata_only" | "preview";
 
 export function ShowDetailView({ showId }: { showId: string }) {
   const [data, setData] = useState<ShowPayload | null>(null);
@@ -50,6 +88,17 @@ export function ShowDetailView({ showId }: { showId: string }) {
   const [igCarousel, setIgCarousel] = useState<IgCarouselDraft | null>(null);
   const [endScreenMsg, setEndScreenMsg] = useState<string | null>(null);
   const [lifecycleMsg, setLifecycleMsg] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<PreflightPayload | null>(null);
+  const [lifecycleProof, setLifecycleProof] = useState<LifecycleResultPayload["proof"] | null>(null);
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
+  const [runMode, setRunMode] = useState<RunMode>("preview");
+
+  const loadPreflight = useCallback(async () => {
+    const res = await fetchJson<PreflightPayload>(
+      `/api/shows/${showId}/preflight?mode=${runMode}`
+    );
+    if (res.ok) setPreflight(res.data);
+  }, [showId, runMode]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,12 +111,68 @@ export function ShowDetailView({ showId }: { showId: string }) {
     setData(res.data);
     setCommentItems(res.data.commentReplies);
     setIgCarousel(res.data.igCarousel);
+    if (res.data.show.youtubeVideoId) {
+      setYoutubeUrlInput((prev) =>
+        prev ? prev : `https://www.youtube.com/watch?v=${res.data.show.youtubeVideoId}`
+      );
+    }
     setLoading(false);
-  }, [showId]);
+    void loadPreflight();
+  }, [showId, loadPreflight]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadPreflight();
+  }, [loadPreflight]);
+
+  async function bindYoutubeVideo() {
+    setBusy("bind-video");
+    const res = await fetchJson<{ show: ShowRun }>(`/api/shows/${showId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ youtubeUrl: youtubeUrlInput }),
+    });
+    setBusy(null);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    void load();
+  }
+
+  async function runEndToEnd() {
+    setBusy("lifecycle");
+    setLifecycleMsg(null);
+    const res = await fetchJson<LifecycleResultPayload>(`/api/shows/${showId}/lifecycle`, {
+      method: "POST",
+      body: JSON.stringify({ mode: runMode }),
+    });
+    setBusy(null);
+    if (!res.ok) {
+      const blockers = (res.data as LifecycleResultPayload | undefined)?.blockers;
+      if (blockers?.length) {
+        setPreflight({ ready: false, blockers, warnings: [] });
+        setError(blockers.map((b) => b.message).join(" · "));
+      } else {
+        setError(res.error);
+      }
+      return;
+    }
+    setLifecycleProof(res.data.proof);
+    const okSteps = res.data.steps.filter((s) => s.ok).length;
+    setLifecycleMsg(
+      res.data.ok
+        ? runMode === "preview"
+          ? `Preview complete · ${okSteps}/${res.data.steps.length} steps · drafts local · ${res.data.proof.clipsExportCount} clips · connect OAuth to publish`
+          : `Verified end-to-end · ${okSteps}/${res.data.steps.length} steps · YouTube write OK · ${res.data.proof.clipsExportCount} clips`
+        : runMode === "preview"
+          ? `Preview blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done · check proof panel`
+          : `Run blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done · check proof panel`
+    );
+    void load();
+  }
 
   const phaseItems = useMemo(() => {
     if (!data) return [];
@@ -181,6 +286,8 @@ export function ShowDetailView({ showId }: { showId: string }) {
                 { value: "draft", label: "Draft" },
                 { value: "scheduled", label: "Sched" },
                 { value: "live", label: "Live" },
+                { value: "blocked", label: "Blocked" },
+                { value: "preview", label: "Preview" },
                 { value: "completed", label: "Done" },
               ]}
               onChange={(v) => void setShowStatus(v as ShowRun["status"])}
@@ -192,43 +299,80 @@ export function ShowDetailView({ showId }: { showId: string }) {
     >
       {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
 
-      <ContextHeader
-        title={show.title}
-        subtitle={`${channel?.displayName ?? "Channel"} · ${PIPELINE_LABELS[show.pipeline]}${show.guestName ? ` · ${show.guestName}` : ""}`}
-        breadcrumb={
-          <Link href="/shows" className="text-xs text-dim hover:text-accent">
-            Shows
-          </Link>
-        }
+      <Link href="/shows" className="text-xs text-dim hover:text-accent mb-3 inline-block">
+        ← Shows
+      </Link>
+
+      <ShowVideoHero
+        show={show}
+        channel={channel}
+        progressPct={progress.pct}
         actions={
-          <Button
-            size="sm"
-            disabled={busy === "lifecycle"}
-            onClick={async () => {
-              setBusy("lifecycle");
-              const res = await fetchJson<{
-                autoTasksDone: number;
-                autoTasksTotal: number;
-                steps: { step: string; ok: boolean }[];
-              }>(`/api/shows/${showId}/lifecycle`, {
-                method: "POST",
-                body: JSON.stringify({ skipClips: true }),
-              });
-              setBusy(null);
-              if (res.ok) {
-                setLifecycleMsg(
-                  `${res.data.autoTasksDone}/${res.data.autoTasksTotal} auto · ${res.data.steps.filter((s) => s.ok).length}/${res.data.steps.length} steps OK`
-                );
-              } else {
-                setError(res.error);
-              }
-              void load();
-            }}
-          >
-            {busy === "lifecycle" ? "Running…" : "Run lifecycle"}
-          </Button>
+          <>
+            <select
+              className="ytx-mobile-full ytx-select"
+              value={runMode}
+              onChange={(e) => setRunMode(e.target.value as RunMode)}
+            >
+              <option value="preview">Preview run (no OAuth)</option>
+              <option value="full">Full E2E (OAuth)</option>
+              <option value="metadata_only">Metadata only</option>
+            </select>
+            <Button
+              className="ytx-mobile-full"
+              size="sm"
+              disabled={busy === "lifecycle" || preflight?.ready === false}
+              onClick={() => void runEndToEnd()}
+            >
+              {busy === "lifecycle" ? "Running…" : runMode === "preview" ? "Run preview" : "Run end to end"}
+            </Button>
+          </>
         }
       />
+
+      <ReadinessPanel
+        blockers={preflight?.blockers ?? []}
+        warnings={preflight?.warnings ?? []}
+        ready={preflight?.ready ?? false}
+        mode={runMode}
+        host={preflight?.host}
+        proof={lifecycleProof ?? undefined}
+        verification={data.verification}
+      />
+
+      <div className="track-panel mb-4 ytx-bind-video">
+        <label className="flex-1 text-sm block">
+          <span className="text-dim text-xs block mb-1">YouTube video (required for E2E)</span>
+          <input
+            className="ytx-input w-full"
+            placeholder="https://www.youtube.com/watch?v=…"
+            value={youtubeUrlInput}
+            onChange={(e) => setYoutubeUrlInput(e.target.value)}
+          />
+        </label>
+        <Button size="sm" variant="secondary" className="ytx-mobile-full shrink-0" disabled={busy === "bind-video"} onClick={() => void bindYoutubeVideo()}>
+          {busy === "bind-video" ? "Saving…" : "Link video"}
+        </Button>
+      </div>
+
+      {preflight?.host?.serverless ? (
+        <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-100">
+          Demo host — Preview run works here (SEO + drafts). Shorts MP4 export runs on local{" "}
+          <span className="font-mono">:3001</span> or via Scout when wired. Data resets on cold start.
+        </div>
+      ) : null}
+
+      {show.status === "preview" ? (
+        <div className="mb-4 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+          Preview run complete — SEO, clips, and drafts are saved locally. Connect channel OAuth and use Full E2E to publish to YouTube.
+        </div>
+      ) : null}
+
+      {show.status === "blocked" ? (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          Show blocked — last end-to-end run did not pass verification. Fix blockers and run again.
+        </div>
+      ) : null}
 
       {lifecycleMsg ? <p className="text-xs text-dim font-mono mb-4">{lifecycleMsg}</p> : null}
 
@@ -263,16 +407,17 @@ export function ShowDetailView({ showId }: { showId: string }) {
         })}
       </div>
 
-      <div className="mb-6">
+      <div className="mb-6 ytx-tabs-scroll">
         <SegmentedControl
           value={tab}
           options={[
             { value: "checklist", label: "Checklist" },
-            { value: "pre_show", label: "Pre-show ops" },
-            { value: "live", label: "Live ops" },
+            { value: "pre_show", label: "Pre-show" },
+            { value: "live", label: "Live" },
             { value: "post_show", label: "Post-show" },
           ]}
           onChange={(v) => setTab(v as Tab)}
+          className="ytx-segmented-mobile"
         />
       </div>
 
@@ -295,6 +440,17 @@ export function ShowDetailView({ showId }: { showId: string }) {
                     <span className="w-5 h-5 shrink-0 text-dim text-xs">⊘</span>
                   ) : def?.needsQc ? (
                     <span className="w-5 h-5 shrink-0 rounded-full border-2 border-amber-500/60" title="QC required" />
+                  ) : def?.mode === "auto" ? (
+                    <span
+                      className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
+                        item.status === "done"
+                          ? "bg-accent border-accent text-black"
+                          : "border-white/20"
+                      }`}
+                      title="Auto tasks complete from verified lifecycle actions only"
+                    >
+                      {item.status === "done" ? "✓" : ""}
+                    </span>
                   ) : (
                     <button
                       type="button"

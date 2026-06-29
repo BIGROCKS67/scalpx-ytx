@@ -1,5 +1,12 @@
 import { CHECKLIST_TASKS, taskById } from "@/lib/checklistTasks";
-import { PHASE_ORDER, type ChecklistItem, type ShowPhase, type ShowRun, type YtChannel } from "@/lib/types";
+import {
+  PHASE_ORDER,
+  type ChecklistItem,
+  type ShowPhase,
+  type ShowRun,
+  type ShowRunStatus,
+  type YtChannel,
+} from "@/lib/types";
 
 export type ShowProgress = {
   showId: string;
@@ -18,6 +25,15 @@ export type AttentionItem = {
   reason: string;
   urgency: "high" | "medium" | "low";
   href: string;
+};
+
+const STATUS_RANK: Record<ShowRunStatus, number> = {
+  live: 0,
+  blocked: 1,
+  preview: 2,
+  scheduled: 3,
+  draft: 4,
+  completed: 5,
 };
 
 export function progressForShow(items: ChecklistItem[]): Omit<ShowProgress, "showId"> {
@@ -56,6 +72,7 @@ export function progressForShow(items: ChecklistItem[]): Omit<ShowProgress, "sho
   };
 }
 
+/** One actionable row per show — no OAuth noise until production go-live. */
 export function buildAttentionQueue(
   shows: ShowRun[],
   channels: YtChannel[],
@@ -67,6 +84,7 @@ export function buildAttentionQueue(
   for (const show of shows) {
     const ch = channels.find((c) => c.id === show.channelId);
     const checklist = checklistByShow[show.id] ?? [];
+    const prog = progressForShow(checklist);
     const base = {
       showId: show.id,
       title: show.title,
@@ -74,41 +92,68 @@ export function buildAttentionQueue(
       href: `/shows/${show.id}`,
     };
 
+    let item: AttentionItem | null = null;
+
     if (show.status === "live") {
-      items.push({ ...base, reason: "Live now", urgency: "high" });
-    }
-
-    if (!ch?.oauthConnected && (show.status === "scheduled" || show.status === "live")) {
-      items.push({ ...base, reason: "OAuth not connected", urgency: "high" });
-    }
-
-    const qc = progressForShow(checklist).qcPending;
-    if (qc > 0) {
-      items.push({ ...base, reason: `${qc} QC item${qc > 1 ? "s" : ""} pending`, urgency: "medium" });
-    }
-
-    if (show.scheduledAt) {
+      item = { ...base, reason: "Live now", urgency: "high" };
+    } else if (show.status === "blocked") {
+      item = { ...base, reason: "Run blocked — fix and retry", urgency: "high" };
+    } else if (prog.qcPending > 0) {
+      item = {
+        ...base,
+        reason: `${prog.qcPending} QC item${prog.qcPending > 1 ? "s" : ""} pending`,
+        urgency: "medium",
+      };
+    } else if (show.status === "preview") {
+      item = { ...base, reason: "Preview complete — review drafts", urgency: "medium" };
+    } else if (show.youtubeVideoId && show.status === "draft" && prog.pct < 15) {
+      item = { ...base, reason: "Ready for preview run", urgency: "medium" };
+    } else if (show.scheduledAt) {
       const hours = (new Date(show.scheduledAt).getTime() - now) / 3600000;
-      if (hours > 0 && hours < 48 && progressForShow(checklist).pct < 70) {
-        items.push({
+      if (hours > 0 && hours < 48 && prog.pct < 70) {
+        item = {
           ...base,
-          reason: `Air in ${Math.round(hours)}h · ${progressForShow(checklist).pct}% ready`,
+          reason: `Air in ${Math.round(hours)}h · ${prog.pct}% ready`,
           urgency: "medium",
-        });
+        };
       }
+    } else if (
+      show.youtubeVideoId &&
+      (show.status === "draft" || show.status === "completed") &&
+      prog.pct > 0 &&
+      prog.pct < 70
+    ) {
+      item = { ...base, reason: `${prog.pct}% lifecycle · continue setup`, urgency: "low" };
     }
+
+    if (item) items.push(item);
   }
 
   const rank = { high: 0, medium: 1, low: 2 };
-  const seen = new Set<string>();
-  return items
-    .filter((i) => {
-      const key = `${i.showId}:${i.reason}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .sort((a, b) => rank[a.urgency] - rank[b.urgency]);
+  return items.sort((a, b) => rank[a.urgency] - rank[b.urgency] || a.title.localeCompare(b.title));
+}
+
+export function sortShowsForDashboard(shows: ShowRun[]): ShowRun[] {
+  return [...shows].sort((a, b) => {
+    const byStatus = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+    if (byStatus !== 0) return byStatus;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+}
+
+export function dashboardCounts(
+  shows: ShowRun[],
+  attention: AttentionItem[],
+  checklistByShow: Record<string, ChecklistItem[]>
+) {
+  const qcPending = attention.filter((a) => a.reason.includes("QC")).length;
+  const previewRuns = shows.filter((s) => s.status === "preview").length;
+  const actionable = attention.length;
+  let totalQcTasks = 0;
+  for (const show of shows) {
+    totalQcTasks += progressForShow(checklistByShow[show.id] ?? []).qcPending;
+  }
+  return { qcPending, previewRuns, actionable, totalQcTasks };
 }
 
 export function rosterHealth(channels: YtChannel[]) {
@@ -122,4 +167,17 @@ export function shipMetrics(allItems: { mode: string; status: string }[]) {
   const autoDone = allItems.filter((i) => i.mode === "auto" && i.status === "done").length;
   const shipTarget = 27;
   return { autoTotal, autoDone, shipTarget };
+}
+
+export function statusLabel(status: ShowRunStatus): string {
+  switch (status) {
+    case "preview":
+      return "Preview";
+    case "completed":
+      return "Done";
+    case "blocked":
+      return "Blocked";
+    default:
+      return status;
+  }
 }

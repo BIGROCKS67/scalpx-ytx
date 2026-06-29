@@ -1,8 +1,4 @@
-import { profileBySlug } from "@/lib/demoProfiles";
-import {
-  ROSTER_YOUTUBE_CHANNEL_IDS,
-  ROSTER_YOUTUBE_HANDLES,
-} from "@/lib/rosterYoutubeHandles";
+import { ROSTER_YOUTUBE_CHANNEL_IDS, ROSTER_YOUTUBE_HANDLES } from "@/lib/rosterYoutubeHandles";
 import { youtubeIdForSlug } from "@/lib/rosterChannelIds";
 import { getSettings, listChannels, listShows, createShow, updateChannel, updateShow } from "@/lib/store";
 import type { ShowFormat, YtChannel } from "@/lib/types";
@@ -62,6 +58,7 @@ type ChannelPayload = {
     title?: string;
     description?: string;
     customUrl?: string;
+    thumbnails?: { high?: { url?: string }; default?: { url?: string } };
   };
   statistics?: { subscriberCount?: string; viewCount?: string };
   brandingSettings?: { channel?: { keywords?: string } };
@@ -165,6 +162,10 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
         ...channel.socialLinks,
         ...socialFromCustomUrl(payload.snippet.customUrl),
       };
+      const avatarUrl =
+        payload.snippet.thumbnails?.high?.url ??
+        payload.snippet.thumbnails?.default?.url ??
+        channel.avatarUrl;
 
       await updateChannel(channel.id, {
         youtubeChannelId: youtubeId,
@@ -172,6 +173,7 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
         descriptionTemplate: description,
         tags: tags.length ? tags : channel.tags,
         socialLinks,
+        avatarUrl,
       });
       result.channelsUpdated++;
       syncedSlugs.add(channel.slug);
@@ -206,20 +208,6 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
     } catch (e) {
       result.errors.push(`${channel.slug}: ${e instanceof Error ? e.message : "sync failed"}`);
     }
-  }
-
-  for (const channel of channels) {
-    if (syncedSlugs.has(channel.slug)) continue;
-    const profile = profileBySlug(channel.slug);
-    if (!profile) continue;
-    await updateChannel(channel.id, {
-      descriptionTemplate: profile.descriptionTemplate,
-      tags: profile.tags,
-      socialLinks: { ...profile.socialLinks, ...channel.socialLinks },
-      channelTrailerDraft: channel.channelTrailerDraft ?? profile.channelTrailerDraft,
-    });
-    result.channelsUpdated++;
-    result.errors.push(`${channel.slug}: no public YouTube yet · using roster copy until UC ID added`);
   }
 
   result.ok = result.channelsUpdated > 0;

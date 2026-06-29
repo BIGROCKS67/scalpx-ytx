@@ -226,7 +226,7 @@ Live execution · end-of-day recap · community levels thread.`,
   },
   {
     slug: "banter",
-    displayName: "Banter",
+    displayName: "Crypto Banter",
     hostLabel: "Chento Trades (show host)",
     youtubeChannelId: DEMO_YOUTUBE_IDS.banter,
     trackAccountId: "banter-show",

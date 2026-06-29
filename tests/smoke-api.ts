@@ -40,7 +40,7 @@ async function main() {
 
   const channels = await json("/api/channels");
   ok("GET /api/channels 200", channels.res.status === 200);
-  ok("10 channels", channels.body.channels?.length === 10);
+  ok("2 active channels", channels.body.channels?.length === 2);
   const banter = channels.body.channels?.find((c: { slug: string }) => c.slug === "banter");
   ok("banter in roster", banter?.isShowFormat === true);
   const chento = channels.body.channels?.find((c: { slug: string }) => c.slug === "chento");
@@ -77,7 +77,13 @@ async function main() {
     method: "PATCH",
     body: JSON.stringify({ taskId: "1.1", status: "done" }),
   });
-  ok("PATCH checklist 200", checklistPatch.res.status === 200);
+  ok("PATCH auto task blocked (403)", checklistPatch.res.status === 403);
+
+  const manualPatch = await json(`/api/shows/${showId}/checklist`, {
+    method: "PATCH",
+    body: JSON.stringify({ taskId: "2.3", status: "done" }),
+  });
+  ok("PATCH manual task 200", manualPatch.res.status === 200);
 
   const seo = await json(`/api/shows/${showId}/seo-pack`, { method: "POST" });
   ok("POST seo-pack 200", seo.res.status === 200);
@@ -91,15 +97,31 @@ async function main() {
   ok("6 cross-post items", cross.body.crossPosts?.length === 6);
 
   const analytics = await json(`/api/shows/${showId}/analytics`, { method: "POST" });
-  ok("POST analytics 200", analytics.res.status === 200);
-  ok("analytics snapshots", analytics.body.snapshots?.length >= 2);
+  ok("POST analytics 422 without video", analytics.res.status === 422);
+
+  const preflight = await json(`/api/shows/${showId}/preflight`);
+  ok("GET preflight 200", preflight.res.status === 200);
+  ok("preflight blocked without video/oauth", preflight.body.ready === false);
+
+  const previewPreflight = await json(`/api/shows/${showId}/preflight?mode=preview`);
+  ok("GET preview preflight 200", previewPreflight.res.status === 200);
+  ok(
+    "preview preflight has no OAuth write blocker",
+    !previewPreflight.body.blockers?.some((b: { code: string }) => b.code === "youtube_write_missing")
+  );
+
+  const ytStatus = await json("/api/youtube/status");
+  ok("GET youtube/status 200", ytStatus.res.status === 200);
+
+  const clipsReady = await json("/api/clips/readiness");
+  ok("GET clips/readiness 200", clipsReady.res.status === 200);
 
   const lifecycle = await json(`/api/shows/${showId}/lifecycle`, {
     method: "POST",
-    body: JSON.stringify({ skipClips: true }),
+    body: JSON.stringify({ mode: "full" }),
   });
-  ok("POST lifecycle 200", lifecycle.res.status === 200);
-  ok("lifecycle auto tasks", lifecycle.body.autoTasksDone >= 20);
+  ok("POST lifecycle blocked (422)", lifecycle.res.status === 422);
+  ok("lifecycle returns blockers", Array.isArray(lifecycle.body.blockers));
 
   const oauth = await fetch(`${BASE}/api/youtube/connect?channelId=${chento.id}`, {
     redirect: "manual",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canManuallyUpdateTask } from "@/lib/checklistAutomation";
 import { listChecklist, updateChecklistItem } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const body = (await req.json()) as { taskId?: string; status?: string; notes?: string };
     if (!body.taskId) return NextResponse.json({ error: "taskId required" }, { status: 400 });
+    if (body.status && !canManuallyUpdateTask(body.taskId, body.status)) {
+      return NextResponse.json(
+        { error: "Auto tasks can only complete from verified lifecycle actions" },
+        { status: 403 }
+      );
+    }
     const item = await updateChecklistItem(id, body.taskId, {
       status: body.status as "pending" | "in_progress" | "done" | "skipped" | undefined,
       notes: body.notes,

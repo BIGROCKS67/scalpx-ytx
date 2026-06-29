@@ -51,6 +51,12 @@ async function main() {
     process.exit(1);
   }
 
+  console.log("→ Lifecycle preflight…");
+  if ((await run("npx", ["tsx", "tests/lifecycle-preflight.ts"])) !== 0) {
+    console.error("\n✗ lifecycle preflight failed");
+    process.exit(1);
+  }
+
   console.log("→ Banter dry-run…");
   if ((await run("npx", ["tsx", "tests/banter-dry-run.ts"])) !== 0) {
     console.error("\n✗ banter dry-run failed");

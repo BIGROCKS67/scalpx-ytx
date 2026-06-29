@@ -14,7 +14,8 @@ import {
   tasksForPhase,
 } from "@/lib/checklistTasks";
 import { PHASE_ORDER } from "@/lib/types";
-import { rosterSeedData, ROSTER_SLUG_ORDER, TRADER_ROSTER } from "@/lib/rosterSeed";
+import { rosterSeedData, ROSTER_SLUG_ORDER } from "@/lib/rosterSeed";
+import { canManuallyUpdateTask } from "@/lib/checklistAutomation";
 import { generateSeoPack } from "@/lib/seoPack";
 import { buildSponsorBlock } from "@/lib/adapters/deals";
 import {
@@ -60,19 +61,21 @@ async function main() {
   const stats = automationStats(CHECKLIST_TASKS.map((t) => ({ mode: t.mode, status: "pending" })));
   ok("auto tasks >= 23", stats.auto >= 23);
   ok("assist + manual + auto = 38", stats.auto + stats.assist + stats.manual === 38);
+  ok("auto tasks cannot be manually marked done", !canManuallyUpdateTask("1.1", "done"));
+  ok("manual tasks can be marked done", canManuallyUpdateTask("2.3", "done"));
 
   console.log("\nroster spec:");
-  ok("10 seed channels", rosterSeedData().length === 10);
-  ok("9 traders in roster constant", TRADER_ROSTER.length === 9);
+  ok("2 active seed channels", rosterSeedData().length === 2);
+  ok("chento in roster", rosterSeedData().some((c) => c.slug === "chento"));
   const banter = rosterSeedData().find((c) => c.slug === "banter");
   ok("banter is show-format entity", banter?.isShowFormat === true);
   ok("chento not show-format", rosterSeedData().find((c) => c.slug === "chento")?.isShowFormat === false);
-  ok("roster order ends with banter", ROSTER_SLUG_ORDER.at(-1) === "banter");
+  ok("roster order is chento then banter", ROSTER_SLUG_ORDER.join(",") === "chento,banter");
 
   setupTempDb();
   console.log("\nstore / lifecycle:");
   const channels = await seedChannels();
-  ok("seed persists 10 channels", channels.length === 10);
+  ok("seed persists 2 active channels", channels.length === 2);
   ok("first channel is chento (roster order)", channels[0]?.slug === "chento");
   ok("last channel is banter", channels.at(-1)?.slug === "banter");
 

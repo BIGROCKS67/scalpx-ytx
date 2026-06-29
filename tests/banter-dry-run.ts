@@ -1,5 +1,5 @@
 /**
- * Banter show dry-run - full lifecycle without Clips download.
+ * Banter show lifecycle — proof-based (blocks without real YouTube OAuth + video).
  * Run: npx tsx tests/banter-dry-run.ts
  */
 import assert from "node:assert/strict";
@@ -8,8 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { closeDb } from "@/lib/db";
 import { runShowLifecycle } from "@/lib/lifecycle";
-import { CHECKLIST_TASKS } from "@/lib/checklistTasks";
-import { createShow, listChannels, listChecklist, seedChannels } from "@/lib/store";
+import { preflightShowRun } from "@/lib/readiness/preflight";
+import { createShow, listChannels, seedChannels, updateShow } from "@/lib/store";
 
 function setupTempDb() {
   closeDb();
@@ -18,45 +18,49 @@ function setupTempDb() {
 }
 
 async function main() {
-  console.log("\n=== Banter dry-run (full lifecycle) ===\n");
+  console.log("\n=== Banter lifecycle proof test ===\n");
   setupTempDb();
 
   await seedChannels();
   const channels = await listChannels();
+  assert.equal(channels.length, 2, "active roster is chento + banter");
   const banter = channels.find((c) => c.slug === "banter");
   assert.ok(banter, "banter channel exists");
 
   const { show, checklist } = await createShow({
     channelId: banter.id,
-    title: "Banter Dry Run - Ship Test",
+    title: "Banter Proof Test",
     format: "banter",
     guestName: "Test Guest",
     scheduledAt: new Date(Date.now() + 86400000).toISOString(),
   });
 
   assert.equal(checklist.length, 38, "38 checklist tasks seeded");
-  assert.equal(show.format, "banter");
 
-  const result = await runShowLifecycle(show.id, { skipClips: true });
-  console.log(`  steps OK: ${result.steps.filter((s) => s.ok).length}/${result.steps.length}`);
-  console.log(`  auto tasks: ${result.autoTasksDone}/${result.autoTasksTotal}`);
+  const blocked = await runShowLifecycle(show.id, { mode: "full" });
+  assert.equal(blocked.ok, false, "full run blocked without OAuth/video/clips");
+  assert.ok(blocked.blockers?.length, "returns blocker list");
+  console.log(`  blocked: ${blocked.blockers?.map((b) => b.code).join(", ")}`);
 
-  const items = await listChecklist(show.id);
-  const autoTotal = CHECKLIST_TASKS.filter((t) => t.mode === "auto").length;
-  const autoDone = items.filter(
-    (i) => CHECKLIST_TASKS.find((t) => t.id === i.taskId)?.mode === "auto" && i.status === "done"
-  ).length;
+  await updateShow(show.id, { youtubeVideoId: "dQw4w9WgXcQ" });
+  const stillBlocked = await runShowLifecycle(show.id, { mode: "full" });
+  assert.equal(stillBlocked.ok, false, "still blocked without OAuth");
+  assert.ok(
+    stillBlocked.blockers?.some((b) => b.code === "youtube_write_missing"),
+    "reports missing OAuth"
+  );
+  console.log("  ✓ preflight blocks without real credentials");
 
-  const done = items.filter((i) => i.status === "done").length;
-  const pctAll = Math.round((done / 38) * 100);
+  const metadataOnly = await runShowLifecycle(show.id, { mode: "metadata_only" });
+  assert.equal(metadataOnly.ok, false, "metadata-only still needs OAuth for YouTube write");
+  console.log(`  metadata-only ok=${metadataOnly.ok} (expected false without OAuth)`);
 
-  assert.equal(autoTotal, 28, "28 auto tasks after Chento addendum");
-  assert.ok(autoDone >= 25, `auto tasks done excluding QC (${autoDone}/${autoTotal})`);
-  assert.ok(done >= 27, `70% ship bar: ${done}/38 tasks done (${pctAll}%)`);
+  process.env.YTX_YOUTUBE_API_KEY = process.env.YTX_YOUTUBE_API_KEY ?? "test-api-key";
+  const previewPreflight = await preflightShowRun(show.id, "preview");
+  assert.ok(!previewPreflight.blockers.some((b) => b.code === "youtube_write_missing"));
+  console.log("  ✓ preview preflight skips OAuth write blocker");
 
-  console.log(`  ship automation: ${pctAll}% of 38 tasks (${done} done · ${autoDone} auto)`);
-
-  console.log("\n✓ Banter dry-run passed\n");
+  console.log("\n✓ Banter proof test passed\n");
 }
 
 main().catch((e) => {

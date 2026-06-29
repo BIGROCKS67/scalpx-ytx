@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { ACTION_TASKS, markTasksDone } from "@/lib/checklistAutomation";
 import { runPostShowSeoPass } from "@/lib/postShow";
-import { addEndScreenEdge, getShow, listEndScreenEdges, updateShow } from "@/lib/store";
+import { getChannel, getShow, listEndScreenEdges, updateShow } from "@/lib/store";
+import { logVerification } from "@/lib/verificationLog";
+import { updateVideoMetadata, youtubeWriteReady } from "@/lib/youtube/dataApi";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,9 +12,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const show = await getShow(id);
     if (!show) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    const fromId = show.youtubeVideoId ?? show.id;
-    const edges = await listEndScreenEdges(fromId);
-    return NextResponse.json({ edges, fromVideoId: fromId });
+    if (!show.youtubeVideoId) {
+      return NextResponse.json({ edges: [], fromVideoId: null });
+    }
+    const edges = await listEndScreenEdges(show.youtubeVideoId);
+    return NextResponse.json({ edges, fromVideoId: show.youtubeVideoId });
   } catch {
     return NextResponse.json({ error: "End screen load failed" }, { status: 500 });
   }
@@ -24,6 +27,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const show = await getShow(id);
     if (!show) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const channel = await getChannel(show.channelId);
+    if (!channel) return NextResponse.json({ error: "Channel missing" }, { status: 404 });
 
     const seo = await runPostShowSeoPass(show, show.clipSourceId);
     const desc = `${show.seoDescription ?? ""}${seo.descriptionAppend}`.trim();
@@ -32,16 +37,33 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       seoDescription: desc,
     });
 
-    const fromId = show.youtubeVideoId ?? show.id;
-    const relatedId = show.youtubeVideoId ? `${show.youtubeVideoId}-prev` : `${show.channelId}-trailer`;
-    const edge = await addEndScreenEdge(fromId, relatedId, 1);
+    let pushedToYoutube = false;
+    if (show.youtubeVideoId && (await youtubeWriteReady(channel.id))) {
+      const write = await updateVideoMetadata(channel.id, show.youtubeVideoId, {
+        description: desc,
+        tags: seo.tags,
+        title: show.seoTitle ?? show.title,
+      });
+      pushedToYoutube = write.ok;
+      await logVerification({
+        showRunId: id,
+        channelId: channel.id,
+        action: "metadata_update",
+        ok: write.ok,
+        source: write.ok ? "youtube_api" : "blocked",
+        videoId: show.youtubeVideoId,
+        httpStatus: write.httpStatus,
+        detail: write.ok ? "Post-show metadata pushed" : write.error ?? "Write failed",
+      });
+    }
 
-    await markTasksDone(id, [...ACTION_TASKS.postShowSeo, ...ACTION_TASKS.endScreen, ...ACTION_TASKS.transcript]);
+    const edges = show.youtubeVideoId ? await listEndScreenEdges(show.youtubeVideoId) : [];
 
     return NextResponse.json({
       show: updated,
       seo,
-      edge,
+      edges,
+      pushedToYoutube,
       abReminderAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     });
   } catch (e) {

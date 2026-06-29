@@ -177,6 +177,22 @@ CREATE TABLE IF NOT EXISTS ig_carousels (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ig_carousels_show ON ig_carousels(showRunId);
+
+CREATE TABLE IF NOT EXISTS verification_log (
+  id TEXT PRIMARY KEY,
+  showRunId TEXT,
+  channelId TEXT,
+  action TEXT NOT NULL,
+  ok INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'local_only',
+  videoId TEXT,
+  httpStatus INTEGER,
+  detail TEXT DEFAULT '',
+  metadataJson TEXT DEFAULT '{}',
+  createdAt TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_show ON verification_log(showRunId, createdAt DESC);
 `);
   migrateSchema(db);
 }
@@ -192,6 +208,7 @@ function migrateSchema(db: Database.Database) {
   addCol("ALTER TABLE show_runs ADD COLUMN pipeline TEXT DEFAULT 'live'");
   addCol("ALTER TABLE show_runs ADD COLUMN liveChaptersJson TEXT DEFAULT '[]'");
   addCol("ALTER TABLE channels ADD COLUMN channelTrailerDraftJson TEXT DEFAULT NULL");
+  addCol("ALTER TABLE channels ADD COLUMN avatarUrl TEXT DEFAULT NULL");
 }
 
 export function getDb(): Database.Database {

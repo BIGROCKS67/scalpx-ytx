@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runShowLifecycle } from "@/lib/lifecycle";
+import { runShowLifecycle, type LifecycleOptions } from "@/lib/lifecycle";
 import { getShow } from "@/lib/store";
+import type { PreflightMode } from "@/lib/readiness/preflight";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,14 +12,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const show = await getShow(id);
     if (!show) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
     const body = (await req.json().catch(() => ({}))) as {
-      skipClips?: boolean;
+      mode?: PreflightMode;
       youtubeUrl?: string;
     };
-    const result = await runShowLifecycle(id, {
-      skipClips: body.skipClips ?? !show.youtubeVideoId,
+
+    const opts: LifecycleOptions = {
+      mode: body.mode ?? "full",
       youtubeUrl: body.youtubeUrl,
-    });
+    };
+
+    const result = await runShowLifecycle(id, opts);
+
+    if (!result.ok && result.blockers?.length) {
+      return NextResponse.json(result, { status: 422 });
+    }
+
     return NextResponse.json(result);
   } catch (e) {
     console.error("[lifecycle]", e);

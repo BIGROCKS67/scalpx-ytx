@@ -6,9 +6,11 @@ import {
   getShow,
   listAnalytics,
 } from "@/lib/store";
+import { logVerification } from "@/lib/verificationLog";
 import {
   fetchChannelBaseline,
   fetchLiveVideoStats,
+  fetchVideoBroadcastState,
   youtubeApiReady,
 } from "@/lib/youtube/dataApi";
 
@@ -29,23 +31,54 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const channel = await getChannel(show.channelId);
     if (!channel) return NextResponse.json({ error: "Channel missing" }, { status: 404 });
 
-    let waitingRoom = Math.floor(80 + Math.random() * 120);
-    let peak = waitingRoom + Math.floor(20 + Math.random() * 200);
-    let source: "youtube_api" | "simulated" = "simulated";
+    if (!show.youtubeVideoId) {
+      return NextResponse.json(
+        { error: "Link a YouTube video before capturing analytics" },
+        { status: 422 }
+      );
+    }
 
-    if (show.youtubeVideoId && (await youtubeApiReady(channel.id))) {
-      const live = await fetchLiveVideoStats(channel.id, show.youtubeVideoId);
-      if (live?.concurrentViewers != null) {
-        waitingRoom = live.concurrentViewers;
-        peak = Math.max(peak, waitingRoom + Math.floor(waitingRoom * 0.2));
-        source = "youtube_api";
-      }
-      if (channel.youtubeChannelId) {
-        const baseline = await fetchChannelBaseline(channel.id, channel.youtubeChannelId);
-        if (baseline) {
-          waitingRoom = Math.max(waitingRoom, Math.floor(baseline.subscribers * 0.002));
-        }
-      }
+    if (!(await youtubeApiReady(channel.id))) {
+      return NextResponse.json(
+        { error: "YouTube API key or OAuth required for analytics" },
+        { status: 422 }
+      );
+    }
+
+    await fetchVideoBroadcastState(channel.id, show.youtubeVideoId);
+    const live = await fetchLiveVideoStats(channel.id, show.youtubeVideoId);
+    const baseline = channel.youtubeChannelId
+      ? await fetchChannelBaseline(channel.id, channel.youtubeChannelId)
+      : null;
+
+    let waitingRoom: number | null = null;
+    let peak: number | null = null;
+
+    if (live?.concurrentViewers != null) {
+      waitingRoom = live.concurrentViewers;
+      peak = Math.max(waitingRoom, waitingRoom + Math.floor(live.concurrentViewers * 0.15));
+    } else if (live?.viewCount != null) {
+      waitingRoom = live.viewCount;
+      peak = live.viewCount;
+    } else if (baseline) {
+      waitingRoom = Math.max(1, Math.floor(baseline.subscribers * 0.002));
+      peak = waitingRoom;
+    }
+
+    if (waitingRoom == null || peak == null) {
+      await logVerification({
+        showRunId: id,
+        channelId: channel.id,
+        action: "analytics_capture",
+        ok: false,
+        source: "blocked",
+        videoId: show.youtubeVideoId,
+        detail: "YouTube returned no metrics",
+      });
+      return NextResponse.json(
+        { error: "YouTube returned no metrics for this video", source: "unavailable" },
+        { status: 422 }
+      );
     }
 
     const [waiting, peakSnap] = await Promise.all([
@@ -54,7 +87,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         snapshotType: "waiting_room",
         concurrentViewers: waitingRoom,
         views24h: null,
-        metadata: { source, videoId: show.youtubeVideoId },
+        metadata: { source: "youtube_api", videoId: show.youtubeVideoId },
         capturedAt: new Date().toISOString(),
       }),
       addAnalyticsSnapshot({
@@ -62,14 +95,28 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         snapshotType: "peak_viewers",
         concurrentViewers: peak,
         views24h: null,
-        metadata: { source },
+        metadata: { source: "youtube_api" },
         capturedAt: new Date().toISOString(),
       }),
     ]);
 
+    await logVerification({
+      showRunId: id,
+      channelId: channel.id,
+      action: "analytics_capture",
+      ok: true,
+      source: "youtube_api",
+      videoId: show.youtubeVideoId,
+      detail: "YouTube API metrics",
+    });
+
     await markTasksDone(id, [...ACTION_TASKS.analyticsWaiting, ...ACTION_TASKS.analyticsPeak]);
 
-    return NextResponse.json({ snapshots: [waiting, peakSnap], source });
+    return NextResponse.json({
+      snapshots: [waiting, peakSnap],
+      source: "youtube_api",
+      tasksCompleted: true,
+    });
   } catch (e) {
     return NextResponse.json({ error: "Analytics failed" }, { status: 500 });
   }

@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import {
   buildAttentionQueue,
+  dashboardCounts,
   progressForShow,
   rosterHealth,
   shipMetrics,
+  sortShowsForDashboard,
 } from "@/lib/dashboardInsights";
 import { getDashboardBundle } from "@/lib/store";
 import { automationStats } from "@/lib/checklistTasks";
 import { CHECKLIST_TASKS } from "@/lib/checklistTasks";
+import { fetchYoutubeDashboardAnalytics } from "@/lib/youtube/dashboardAnalytics";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,13 +30,20 @@ export async function GET() {
       ...progressForShow(bundle.checklistByShow[show.id] ?? []),
     }));
 
+    const attention = buildAttentionQueue(bundle.shows, bundle.channels, bundle.checklistByShow);
+    const counts = dashboardCounts(bundle.shows, attention, bundle.checklistByShow);
+    const youtube = await fetchYoutubeDashboardAnalytics(4);
+
     return NextResponse.json({
       ...bundle,
+      shows: sortShowsForDashboard(bundle.shows),
       stats,
-      attention: buildAttentionQueue(bundle.shows, bundle.channels, bundle.checklistByShow),
+      attention,
       showProgress,
       rosterHealth: rosterHealth(bundle.channels),
       ship: shipMetrics(allItems),
+      counts,
+      youtube,
     });
   } catch (e) {
     console.error("[dashboard]", e);

@@ -1,15 +1,29 @@
-import { withBasePath } from "@/lib/basePath";
-
-const LOGO_SRC = withBasePath("/ytx-logo.png");
-
 export function YtxLogoMark({
   className = "h-8 w-auto",
 }: {
   className?: string;
 }) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={LOGO_SRC} alt="YTX" className={`object-contain shrink-0 ${className}`} />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 120 42"
+      fill="none"
+      role="img"
+      aria-label="YTX"
+      className={`shrink-0 ${className}`}
+    >
+      <text
+        x="0"
+        y="34"
+        fontFamily="var(--font-geist-sans), system-ui, sans-serif"
+        fontSize="36"
+        fontWeight="800"
+        letterSpacing="-0.04em"
+      >
+        <tspan fill="#E6EBE6">YT</tspan>
+        <tspan fill="#48FF9F">X</tspan>
+      </text>
+    </svg>
   );
 }
 

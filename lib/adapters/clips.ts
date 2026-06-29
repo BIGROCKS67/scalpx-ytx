@@ -1,5 +1,6 @@
 import { runLocalClipsPipeline } from "@/lib/clips/localPipeline";
 import { scoutFetch } from "@/lib/adapters/scoutClient";
+import { isServerlessDemoHost } from "@/lib/runtimeHost";
 import type { ClipBatch } from "@/lib/types";
 
 type ClipSource = { id: string; title: string; youtubeVideoId?: string | null };
@@ -85,6 +86,18 @@ export async function runClipsPipeline(
   youtubeUrl: string,
   onProgress?: (msg: string) => void
 ): Promise<Partial<ClipBatch>> {
+  if (isServerlessDemoHost()) {
+    onProgress?.("Demo host — trying FlowX Scout for clips…");
+    const scout = await runScoutClipsPipeline(youtubeUrl, onProgress);
+    if (scout.exportUrls?.length) return scout;
+    return {
+      status: "idle",
+      message:
+        scout.message ??
+        "Clips unavailable on demo host — wire FLOWX_SCOUT_URL or run Preview on local :3001",
+    };
+  }
+
   try {
     return await runLocalClipsPipeline(youtubeUrl, onProgress);
   } catch (localErr) {

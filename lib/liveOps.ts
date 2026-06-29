@@ -1,7 +1,8 @@
 import { buildSponsorBlock } from "@/lib/adapters/deals";
 import { listMomentsForSource } from "@/lib/clips/momentsStore";
 import { appendDescriptionPatch, getChannel, getShow, updateShow } from "@/lib/store";
-import { updateVideoMetadata } from "@/lib/youtube/dataApi";
+import { logVerification } from "@/lib/verificationLog";
+import { updateVideoMetadata, youtubeWriteReady } from "@/lib/youtube/dataApi";
 import type { LiveChapter, ShowRun } from "@/lib/types";
 
 function formatTs(sec: number): string {
@@ -10,11 +11,9 @@ function formatTs(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Auto-generate live chapter timestamps from clip moments or default milestones. */
+/** Auto-generate live chapter timestamps from clip moments only (no placeholder chapters). */
 export async function generateLiveChapters(show: ShowRun): Promise<LiveChapter[]> {
-  const chapters: LiveChapter[] = [
-    { atSec: 0, label: "Intro", status: "draft" },
-  ];
+  const chapters: LiveChapter[] = [{ atSec: 0, label: "Intro", status: "draft" }];
 
   if (show.clipSourceId) {
     const moments = await listMomentsForSource(show.clipSourceId);
@@ -26,16 +25,10 @@ export async function generateLiveChapters(show: ShowRun): Promise<LiveChapter[]
         status: "draft",
       });
     }
-  } else {
-    chapters.push(
-      { atSec: 300, label: "Market open recap", status: "draft" },
-      { atSec: 900, label: "Key setup walkthrough", status: "draft" },
-      { atSec: 1800, label: "Q&A", status: "draft" }
-    );
   }
 
-  if (show.guestName) {
-    chapters.splice(1, 0, {
+  if (show.guestName && chapters.length === 1) {
+    chapters.push({
       atSec: 120,
       label: `Guest: ${show.guestName}`,
       status: "draft",
@@ -51,20 +44,23 @@ export function chaptersToDescriptionBlock(chapters: LiveChapter[]): string {
 }
 
 /** Auto-update live description with chapters + sponsor links (YT API when OAuth). */
-export async function applyLiveLinkAndChapterUpdate(showId: string): Promise<{
+export async function applyLiveLinkAndChapterUpdate(
+  showId: string,
+  opts?: { skipYoutubeWrite?: boolean }
+): Promise<{
   show: ShowRun;
   chapters: LiveChapter[];
   description: string;
   pushedToYoutube: boolean;
+  writeStatus: number | null;
+  writeError?: string;
 }> {
   const show = await getShow(showId);
   if (!show) throw new Error("Show not found");
   const channel = await getChannel(show.channelId);
   if (!channel) throw new Error("Channel missing");
 
-  const chapters = show.liveChapters.length
-    ? show.liveChapters
-    : await generateLiveChapters(show);
+  const chapters = show.liveChapters.length ? show.liveChapters : await generateLiveChapters(show);
 
   const sponsor = await buildSponsorBlock(show.dealId);
   const chapterBlock = chaptersToDescriptionBlock(chapters);
@@ -78,11 +74,35 @@ export async function applyLiveLinkAndChapterUpdate(showId: string): Promise<{
   });
 
   let pushedToYoutube = false;
-  if (show.youtubeVideoId && channel.oauthConnected) {
-    pushedToYoutube = await updateVideoMetadata(channel.id, show.youtubeVideoId, {
+  let writeStatus: number | null = null;
+  let writeError: string | undefined;
+
+  if (
+    !opts?.skipYoutubeWrite &&
+    show.youtubeVideoId &&
+    (await youtubeWriteReady(channel.id))
+  ) {
+    const write = await updateVideoMetadata(channel.id, show.youtubeVideoId, {
       description,
       tags: show.seoTags,
     });
+    pushedToYoutube = write.ok;
+    writeStatus = write.httpStatus;
+    writeError = write.error;
+    await logVerification({
+      showRunId: showId,
+      channelId: channel.id,
+      action: "live_description_update",
+      ok: write.ok,
+      source: write.ok ? "youtube_api" : "blocked",
+      videoId: show.youtubeVideoId,
+      httpStatus: write.httpStatus,
+      detail: write.ok ? "Live description + chapters pushed" : write.error ?? "Write failed",
+    });
+  } else if (opts?.skipYoutubeWrite) {
+    writeError = "Preview run — YouTube write skipped";
+  } else {
+    writeError = "OAuth not connected for this channel";
   }
 
   const updated = await updateShow(showId, {
@@ -95,5 +115,7 @@ export async function applyLiveLinkAndChapterUpdate(showId: string): Promise<{
     chapters,
     description,
     pushedToYoutube,
+    writeStatus,
+    writeError,
   };
 }

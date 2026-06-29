@@ -15,8 +15,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "Live link updates only for live stream pipeline" }, { status: 400 });
     }
     const result = await applyLiveLinkAndChapterUpdate(id);
-    await markTasksDone(id, ACTION_TASKS.patchLog);
-    await markTasksDone(id, ["1.13"]);
+    if (result.pushedToYoutube) {
+      await markTasksDone(id, [...ACTION_TASKS.liveLinks, ...ACTION_TASKS.liveChapters]);
+    }
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(

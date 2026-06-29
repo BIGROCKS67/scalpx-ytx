@@ -174,6 +174,30 @@ export function SettingsView() {
           <Button onClick={() => void save("youtube")}>
             {saved === "youtube" ? "Saved" : "Save YouTube OAuth"}
           </Button>
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              const res = await fetchJson<{ global: { apiKey: boolean; oauthConfig: boolean } }>(
+                "/api/youtube/status"
+              );
+              if (res.ok) {
+                setSaved(
+                  res.data.global.oauthConfig && res.data.global.apiKey
+                    ? "yt-ready"
+                    : "yt-partial"
+                );
+              } else {
+                setError(res.error);
+              }
+            }}
+          >
+            Test YouTube status
+          </Button>
+          {saved === "yt-ready" ? (
+            <p className="text-xs text-accent">API key + OAuth config present</p>
+          ) : saved === "yt-partial" ? (
+            <p className="text-xs text-amber-300">Missing API key or OAuth config — add in Settings</p>
+          ) : null}
         </section>
 
         <section className="track-panel space-y-4">

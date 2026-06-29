@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ShowRun, YtChannel } from "@/lib/types";
 import type { AttentionItem, ShowProgress } from "@/lib/dashboardInsights";
+import { statusLabel } from "@/lib/dashboardInsights";
 import { fetchJson } from "@/lib/clientFetch";
 import ErrorBanner from "@/components/ErrorBanner";
 import { ContextHeader } from "@/components/shell/ContextHeader";
 import { Badge, Button, SkeletonStatTile, StatTile } from "@/components/ui";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
+import { YoutubeAnalyticsSection } from "@/components/ytx/YoutubeAnalyticsSection";
+import type { YoutubeDashboardAnalytics } from "@/lib/youtube/dashboardAnalytics";
 
 type DashboardPayload = {
   channels: YtChannel[];
@@ -18,6 +21,8 @@ type DashboardPayload = {
   showProgress: ShowProgress[];
   rosterHealth: { oauth: number; ids: number; total: number };
   ship: { autoTotal: number; autoDone: number; shipTarget: number };
+  counts: { qcPending: number; previewRuns: number; actionable: number; totalQcTasks: number };
+  youtube: YoutubeDashboardAnalytics;
 };
 
 export function YtxHome() {
@@ -43,7 +48,15 @@ export function YtxHome() {
   }, [load]);
 
   const liveCount = data?.shows.filter((s) => s.status === "live").length ?? 0;
-  const qcCount = data?.attention.filter((a) => a.reason.includes("QC")).length ?? 0;
+  const qcCount = data?.counts.totalQcTasks ?? 0;
+  const actionableShows = data?.shows.filter((s) => {
+    if (["live", "blocked", "preview", "draft", "scheduled"].includes(s.status)) return true;
+    if (s.status === "completed") {
+      const prog = data.showProgress.find((p) => p.showId === s.id);
+      return (prog?.qcPending ?? 0) > 0 || (prog?.pct ?? 0) > 0;
+    }
+    return false;
+  });
 
   return (
     <WorkspaceShell
@@ -51,19 +64,17 @@ export function YtxHome() {
       panel={
         <div className="track-rail-block space-y-4 text-sm text-dim">
           <div>
-            <p className="track-rail-label">Roster</p>
-            <p>
-              OAuth {data?.rosterHealth.oauth ?? "…"}/{data?.rosterHealth.total ?? 10}
-            </p>
-            <p>
-              YouTube IDs {data?.rosterHealth.ids ?? "…"}/{data?.rosterHealth.total ?? 10}
+            <p className="track-rail-label">Active channels</p>
+            <p>Chento Trades · Crypto Banter</p>
+            <p className="text-xs mt-1">
+              {data?.rosterHealth.ids ?? 2}/{data?.rosterHealth.total ?? 2} synced from YouTube
             </p>
           </div>
+          <Link href="/shows" className="track-rail-pill text-left w-full">
+            All shows
+          </Link>
           <Link href="/channels" className="track-rail-pill text-left w-full">
             Open roster
-          </Link>
-          <Link href="/shows" className="track-rail-pill text-left w-full">
-            New show
           </Link>
         </div>
       }
@@ -72,8 +83,10 @@ export function YtxHome() {
 
       <ContextHeader
         title="Overview"
-        subtitle="What needs action across channels and show runs"
+        subtitle="YouTube stats, recent uploads, and lifecycle ops"
       />
+
+      <YoutubeAnalyticsSection analytics={data?.youtube} loading={loading} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-6">
         {loading ? (
@@ -86,26 +99,23 @@ export function YtxHome() {
         ) : (
           <>
             <StatTile
-              label="Needs attention"
-              value={data?.attention.length ?? 0}
-              sub="QC · OAuth · live"
-              tone={data?.attention.length ? "text-amber-300" : undefined}
+              label="Action queue"
+              value={data?.counts.actionable ?? 0}
+              sub="QC · preview · live"
+              tone={data?.counts.actionable ? "text-amber-300" : undefined}
+            />
+            <StatTile
+              label="QC pending"
+              value={qcCount}
+              sub="Trailer · comments · carousel"
+              tone={qcCount ? "text-amber-300" : undefined}
+            />
+            <StatTile
+              label="Preview runs"
+              value={data?.counts.previewRuns ?? 0}
+              sub="Drafts ready to review"
             />
             <StatTile label="Live now" value={liveCount} sub="Active broadcasts" />
-            <StatTile
-              label="Ship bar"
-              value={
-                data
-                  ? `${Math.min(data.ship.autoDone, data.ship.shipTarget)}/${data.ship.shipTarget}`
-                  : "…"
-              }
-              sub={`Auto tasks · target ${data?.ship.shipTarget ?? 27}/38`}
-            />
-            <StatTile
-              label="Roster OAuth"
-              value={`${data?.rosterHealth.oauth ?? 0}/${data?.rosterHealth.total ?? 10}`}
-              sub="Channels connected"
-            />
           </>
         )}
       </div>
@@ -133,7 +143,7 @@ export function YtxHome() {
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="track-panel lg:col-span-3">
           <div className="flex items-center justify-between gap-2 mb-4">
-            <h2 className="text-sm font-semibold text-ink">Attention queue</h2>
+            <h2 className="text-sm font-semibold text-ink">Action queue</h2>
             {qcCount > 0 ? <Badge tone="warn">{qcCount} QC</Badge> : null}
           </div>
           {loading ? (
@@ -141,7 +151,7 @@ export function YtxHome() {
           ) : data?.attention.length ? (
             <ul className="ytx-queue">
               {data.attention.slice(0, 8).map((item) => (
-                <li key={`${item.showId}-${item.reason}`}>
+                <li key={item.showId}>
                   <Link href={item.href} className="ytx-queue-row">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-ink truncate">{item.title}</p>
@@ -157,7 +167,9 @@ export function YtxHome() {
               ))}
             </ul>
           ) : (
-            <p className="text-dim text-sm">No blockers. Create a show or run lifecycle on an existing run.</p>
+            <p className="text-dim text-sm">
+              Nothing queued. Link a video on a show and hit Run preview to populate the board.
+            </p>
           )}
         </section>
 
@@ -170,6 +182,40 @@ export function YtxHome() {
           </div>
           {loading ? (
             <p className="text-dim text-sm">Loading…</p>
+          ) : actionableShows?.length ? (
+            <ul className="ytx-queue">
+              {actionableShows.slice(0, 6).map((show) => {
+                const ch = data!.channels.find((c) => c.id === show.channelId);
+                const prog = data!.showProgress.find((p) => p.showId === show.id);
+                return (
+                  <li key={show.id}>
+                    <Link href={`/shows/${show.id}`} className="ytx-queue-row">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-ink truncate">{show.title}</p>
+                        <p className="text-xs text-dim">
+                          {ch?.displayName}
+                          {prog ? ` · ${prog.pct}%` : ""}
+                          {prog?.nextAction ? ` · ${prog.nextAction}` : ""}
+                        </p>
+                      </div>
+                      <Badge
+                        tone={
+                          show.status === "live"
+                            ? "warn"
+                            : show.status === "preview"
+                              ? "good"
+                              : show.status === "blocked"
+                                ? "bad"
+                                : "neutral"
+                        }
+                      >
+                        {statusLabel(show.status)}
+                      </Badge>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           ) : data?.shows.length ? (
             <ul className="ytx-queue">
               {data.shows.slice(0, 6).map((show) => {
@@ -183,10 +229,9 @@ export function YtxHome() {
                         <p className="text-xs text-dim">
                           {ch?.displayName}
                           {prog ? ` · ${prog.pct}%` : ""}
-                          {prog?.nextAction ? ` · ${prog.nextAction}` : ""}
                         </p>
                       </div>
-                      <span className="text-xs font-mono text-dim">{show.status}</span>
+                      <Badge tone="neutral">{statusLabel(show.status)}</Badge>
                     </Link>
                   </li>
                 );

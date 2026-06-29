@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ShowFormat, ShowPipeline, ShowRun, YtChannel } from "@/lib/types";
@@ -8,7 +7,9 @@ import { PIPELINE_LABELS } from "@/lib/pipelines";
 import { fetchJson } from "@/lib/clientFetch";
 import ErrorBanner from "@/components/ErrorBanner";
 import { ContextHeader } from "@/components/shell/ContextHeader";
-import { Badge, Button } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { ShowVideoCard } from "@/components/ytx/ShowVideoCard";
+import { sortShowsForDashboard } from "@/lib/dashboardInsights";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
 export function ShowsView() {
@@ -135,38 +136,28 @@ export function ShowsView() {
     >
       {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
 
-      <ContextHeader title="Shows" subtitle="Show runs and lifecycle checklists" />
+      <ContextHeader title="Shows" subtitle="Your show runs — pick a video to open the lifecycle board" />
 
       {loading ? (
-        <p className="text-dim text-sm">Loading…</p>
+        <div className="ytx-show-grid">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="ytx-show-card ytx-show-card-skeleton" aria-hidden />
+          ))}
+        </div>
       ) : shows.length === 0 ? (
         <div className="track-panel text-center py-12">
-          <p className="text-dim mb-2">No shows yet. Use the panel to create one.</p>
+          <p className="text-dim mb-2">No shows yet. Sync from YouTube on Roster or create one in the panel.</p>
         </div>
       ) : (
-        <ul className="ytx-queue">
-          {shows.map((show) => {
-            const ch = channels.find((c) => c.id === show.channelId);
-            return (
-              <li key={show.id}>
-                <Link href={`/shows/${show.id}`} className="ytx-queue-row">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-ink">{show.title}</p>
-                    <p className="text-xs text-dim">
-                      {ch?.displayName} · {PIPELINE_LABELS[show.pipeline]}
-                      {show.scheduledAt
-                        ? ` · ${new Date(show.scheduledAt).toLocaleString()}`
-                        : ""}
-                    </p>
-                  </div>
-                  <Badge tone={show.status === "live" ? "warn" : show.status === "completed" ? "good" : "neutral"}>
-                    {show.status}
-                  </Badge>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="ytx-show-grid">
+          {sortShowsForDashboard(shows).map((show) => (
+            <ShowVideoCard
+              key={show.id}
+              show={show}
+              channel={channels.find((c) => c.id === show.channelId)}
+            />
+          ))}
+        </div>
       )}
     </WorkspaceShell>
   );

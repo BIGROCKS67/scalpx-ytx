@@ -9,6 +9,8 @@
     "lint": "eslint",
     "test": "npx tsx tests/smoke-unit.ts",
     "test:banter": "npx tsx tests/banter-dry-run.ts",
+    "test:preflight": "npx tsx tests/lifecycle-preflight.ts",
+    "test:clips-e2e": "npx tsx tests/smoke-clips-e2e.ts",
     "test:api": "npx tsx tests/smoke-api.ts",
     "smoke": "node scripts/smoke-all.mjs",
     "seed:demo": "npx tsx scripts/seed-demo.ts",
