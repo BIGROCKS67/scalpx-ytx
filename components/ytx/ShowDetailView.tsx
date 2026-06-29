@@ -23,6 +23,12 @@ import { taskById } from "@/lib/checklistTasks";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { ReadinessPanel } from "@/components/ytx/ReadinessPanel";
 import { ShowVideoHero } from "@/components/ytx/ShowVideoHero";
+import {
+  LifecycleProgressBar,
+  createEmptyRunProgress,
+  type LifecycleRunProgress,
+} from "@/components/ytx/LifecycleProgressBar";
+import { runLifecycleStream } from "@/lib/lifecycleStreamClient";
 
 type PreflightPayload = {
   ready: boolean;
@@ -92,6 +98,7 @@ export function ShowDetailView({ showId }: { showId: string }) {
   const [lifecycleProof, setLifecycleProof] = useState<LifecycleResultPayload["proof"] | null>(null);
   const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
   const [runMode, setRunMode] = useState<RunMode>("preview");
+  const [runProgress, setRunProgress] = useState<LifecycleRunProgress>(createEmptyRunProgress);
 
   const loadPreflight = useCallback(async () => {
     const res = await fetchJson<PreflightPayload>(
@@ -145,21 +152,30 @@ export function ShowDetailView({ showId }: { showId: string }) {
   async function runEndToEnd() {
     setBusy("lifecycle");
     setLifecycleMsg(null);
-    const res = await fetchJson<LifecycleResultPayload>(`/api/shows/${showId}/lifecycle`, {
-      method: "POST",
-      body: JSON.stringify({ mode: runMode }),
-    });
+    setError(null);
+    const initial = { ...createEmptyRunProgress(), running: true };
+    setRunProgress(initial);
+
+    const res = await runLifecycleStream(showId, runMode, setRunProgress, initial);
     setBusy(null);
+
+    if (!res.data) {
+      setError(!res.ok ? res.error : "Lifecycle run failed");
+      return;
+    }
+
     if (!res.ok) {
-      const blockers = (res.data as LifecycleResultPayload | undefined)?.blockers;
+      const blockers = res.data.blockers;
       if (blockers?.length) {
         setPreflight({ ready: false, blockers, warnings: [] });
         setError(blockers.map((b) => b.message).join(" · "));
       } else {
         setError(res.error);
       }
+      setLifecycleProof(res.data.proof);
       return;
     }
+
     setLifecycleProof(res.data.proof);
     const okSteps = res.data.steps.filter((s) => s.ok).length;
     setLifecycleMsg(
@@ -338,6 +354,11 @@ export function ShowDetailView({ showId }: { showId: string }) {
         host={preflight?.host}
         proof={lifecycleProof ?? undefined}
         verification={data.verification}
+      />
+
+      <LifecycleProgressBar
+        progress={runProgress}
+        modeLabel={runMode === "preview" ? "Preview run" : runMode === "full" ? "Full E2E" : "Metadata run"}
       />
 
       <div className="track-panel mb-4 ytx-bind-video">

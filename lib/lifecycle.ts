@@ -28,6 +28,11 @@ import {
   youtubeWriteReady,
 } from "@/lib/youtube/dataApi";
 import type { ShowRun, YtChannel } from "@/lib/types";
+import {
+  buildLifecycleStepPlan,
+  lifecycleStepLabel,
+  type LifecycleProgressEvent,
+} from "@/lib/lifecycleProgress";
 
 export type LifecycleStep = {
   step: string;
@@ -58,6 +63,7 @@ export type LifecycleResult = {
 export type LifecycleOptions = {
   mode?: PreflightMode;
   youtubeUrl?: string;
+  onProgress?: (event: LifecycleProgressEvent) => void | Promise<void>;
 };
 
 async function captureAnalytics(show: ShowRun, channel: YtChannel) {
@@ -143,6 +149,7 @@ export async function runShowLifecycle(
 ): Promise<LifecycleResult> {
   const mode: PreflightMode = opts?.mode ?? "full";
   const preview = isPreviewMode(mode);
+  const emit = opts?.onProgress;
   const preflight = await preflightShowRun(showId, mode);
 
   const proof: LifecycleProof = {
@@ -152,6 +159,25 @@ export async function runShowLifecycle(
     analyticsSource: "skipped",
     clipsExportCount: 0,
     qcStillPending: qcPendingLabels(),
+  };
+
+  const steps: LifecycleStep[] = [];
+  let stepIndex = 0;
+
+  const track = {
+    plan(stepIds: string[]) {
+      emit?.({ type: "plan", steps: stepIds, mode });
+    },
+    start(stepId: string) {
+      emit?.({ type: "step_start", step: stepId, label: lifecycleStepLabel(stepId) });
+    },
+    done(step: LifecycleStep) {
+      steps.push(step);
+      emit?.({ type: "step", step, index: stepIndex++ });
+    },
+    complete(ok: boolean) {
+      emit?.({ type: "complete", ok });
+    },
   };
 
   if (!preflight.ready) {
@@ -167,12 +193,22 @@ export async function runShowLifecycle(
     if (preflight.channel) {
       await updateShow(showId, { status: "blocked" });
     }
+    const failStep: LifecycleStep = {
+      step: "preflight",
+      ok: false,
+      detail: preflight.blockers[0]?.message,
+      proof: "blocked",
+    };
+    track.plan(["preflight"]);
+    track.start("preflight");
+    track.done(failStep);
+    track.complete(false);
     return {
       showId,
       ok: false,
       mode,
       blockers: preflight.blockers,
-      steps: [{ step: "preflight", ok: false, detail: preflight.blockers[0]?.message, proof: "blocked" }],
+      steps: [failStep],
       proof,
       checklist: await checklistSummary(showId),
     };
@@ -181,20 +217,23 @@ export async function runShowLifecycle(
   const show = (await getShow(showId))!;
   const channel = (await getChannel(show.channelId))!;
   proof.youtubeVideoId = show.youtubeVideoId;
-  const steps: LifecycleStep[] = [];
-  steps.push({ step: "preflight", ok: true, detail: "All required checks passed", proof: "verified" });
 
+  track.plan(buildLifecycleStepPlan(show, mode));
+  track.start("preflight");
+  track.done({ step: "preflight", ok: true, detail: "All required checks passed", proof: "verified" });
+
+  track.start("channel_setup");
   try {
     await runChannelSetup(channel.id);
     await markTasksDone(showId, ACTION_TASKS.channelSetup);
-    steps.push({
+    track.done({
       step: "channel_setup",
       ok: true,
       detail: "Local channel tags + description updated · trailer pending QC",
       proof: "draft_only",
     });
   } catch (e) {
-    steps.push({
+    track.done({
       step: "channel_setup",
       ok: false,
       detail: e instanceof Error ? e.message : "failed",
@@ -202,6 +241,7 @@ export async function runShowLifecycle(
     });
   }
 
+  track.start("seo_pack");
   try {
     const pack = await generateSeoPack(show, channel);
     await updateShow(showId, {
@@ -210,9 +250,9 @@ export async function runShowLifecycle(
       seoTags: pack.tags,
     });
     await markTasksDone(showId, ACTION_TASKS.seoPack);
-    steps.push({ step: "seo_pack", ok: true, detail: "SEO drafts saved locally", proof: "draft_only" });
+    track.done({ step: "seo_pack", ok: true, detail: "SEO drafts saved locally", proof: "draft_only" });
   } catch (e) {
-    steps.push({
+    track.done({
       step: "seo_pack",
       ok: false,
       detail: e instanceof Error ? e.message : "failed",
@@ -220,19 +260,20 @@ export async function runShowLifecycle(
     });
   }
 
+  track.start("sponsor_block");
   try {
     const sponsor = await buildSponsorBlock(show.dealId);
     const healthy = sponsor.urls.some((u) => u.healthy);
     if (healthy || !show.dealId) {
       await markTasksDone(showId, ACTION_TASKS.sponsorBlock);
-      steps.push({
+      track.done({
         step: "sponsor_block",
         ok: true,
         detail: healthy ? `${sponsor.urls.length} healthy sponsor URLs` : "No deal linked",
         proof: healthy ? "verified" : "draft_only",
       });
     } else {
-      steps.push({
+      track.done({
         step: "sponsor_block",
         ok: false,
         detail: "Sponsor deal linked but no healthy TrackingLinks",
@@ -240,7 +281,7 @@ export async function runShowLifecycle(
       });
     }
   } catch (e) {
-    steps.push({
+    track.done({
       step: "sponsor_block",
       ok: false,
       detail: e instanceof Error ? e.message : "failed",
@@ -248,17 +289,18 @@ export async function runShowLifecycle(
     });
   }
 
+  track.start("cross_post");
   try {
     const items = await generateCrossPosts(show, channel);
     await upsertCrossPosts(items);
-    steps.push({
+    track.done({
       step: "cross_post",
       ok: true,
       detail: `${items.length} platform drafts saved · not posted`,
       proof: "draft_only",
     });
   } catch (e) {
-    steps.push({
+    track.done({
       step: "cross_post",
       ok: false,
       detail: e instanceof Error ? e.message : "failed",
@@ -267,14 +309,15 @@ export async function runShowLifecycle(
   }
 
   if (show.pipeline === "live") {
+    track.start("analytics");
     try {
       const analytics = await captureAnalytics(show, channel);
       proof.analyticsSource = analytics.source;
       if (analytics.source === "youtube_api") {
         await markTasksDone(showId, [...ACTION_TASKS.analyticsWaiting, ...ACTION_TASKS.analyticsPeak]);
-        steps.push({ step: "analytics", ok: true, detail: analytics.source, proof: "verified" });
+        track.done({ step: "analytics", ok: true, detail: analytics.source, proof: "verified" });
       } else {
-        steps.push({
+        track.done({
           step: "analytics",
           ok: false,
           detail: "No YouTube metrics — snapshot not stored",
@@ -282,7 +325,7 @@ export async function runShowLifecycle(
         });
       }
     } catch (e) {
-      steps.push({
+      track.done({
         step: "analytics",
         ok: false,
         detail: e instanceof Error ? e.message : "failed",
@@ -290,17 +333,18 @@ export async function runShowLifecycle(
       });
     }
 
+    track.start("live_chapters");
     try {
       const chapters = await generateLiveChapters(show);
       await updateShow(showId, { liveChapters: chapters });
-      steps.push({
+      track.done({
         step: "live_chapters",
         ok: true,
         detail: `${chapters.length} chapter drafts · pending YouTube push`,
         proof: "draft_only",
       });
     } catch (e) {
-      steps.push({
+      track.done({
         step: "live_chapters",
         ok: false,
         detail: e instanceof Error ? e.message : "failed",
@@ -308,6 +352,7 @@ export async function runShowLifecycle(
       });
     }
 
+    track.start("live_links");
     try {
       const liveResult = await applyLiveLinkAndChapterUpdate(showId, {
         skipYoutubeWrite: preview,
@@ -316,17 +361,17 @@ export async function runShowLifecycle(
       proof.metadataWriteStatus = liveResult.writeStatus;
       if (liveResult.pushedToYoutube) {
         await markTasksDone(showId, [...ACTION_TASKS.liveLinks, ...ACTION_TASKS.liveChapters]);
-        steps.push({ step: "live_links", ok: true, detail: "Pushed to YouTube", proof: "verified" });
+        track.done({ step: "live_links", ok: true, detail: "Pushed to YouTube", proof: "verified" });
       } else if (preview) {
         await markTasksDone(showId, [...ACTION_TASKS.liveLinks, ...ACTION_TASKS.liveChapters]);
-        steps.push({
+        track.done({
           step: "live_links",
           ok: true,
           detail: "Preview — live description saved locally · OAuth required to publish",
           proof: "draft_only",
         });
       } else {
-        steps.push({
+        track.done({
           step: "live_links",
           ok: false,
           detail: liveResult.writeError ?? "YouTube metadata write failed",
@@ -334,7 +379,7 @@ export async function runShowLifecycle(
         });
       }
     } catch (e) {
-      steps.push({
+      track.done({
         step: "live_links",
         ok: false,
         detail: e instanceof Error ? e.message : "failed",
@@ -343,9 +388,12 @@ export async function runShowLifecycle(
     }
   } else {
     proof.analyticsSource = "skipped";
-    steps.push({ step: "analytics", ok: true, detail: "skipped (pre-recorded pipeline)", proof: "skipped" });
-    steps.push({ step: "live_chapters", ok: true, detail: "skipped", proof: "skipped" });
-    steps.push({ step: "live_links", ok: true, detail: "skipped", proof: "skipped" });
+    track.start("analytics");
+    track.done({ step: "analytics", ok: true, detail: "skipped (pre-recorded pipeline)", proof: "skipped" });
+    track.start("live_chapters");
+    track.done({ step: "live_chapters", ok: true, detail: "skipped", proof: "skipped" });
+    track.start("live_links");
+    track.done({ step: "live_links", ok: true, detail: "skipped", proof: "skipped" });
   }
 
   const youtubeUrl =
@@ -354,6 +402,7 @@ export async function runShowLifecycle(
 
   if ((mode === "full" || preview) && youtubeUrl) {
     const serverlessPreview = preview && isServerlessDemoHost();
+    track.start("clips");
     try {
       await updateClipBatch(showId, { status: "importing", message: "Lifecycle clips…" });
       const batch = await runClipsPipeline(youtubeUrl);
@@ -375,7 +424,7 @@ export async function runShowLifecycle(
           detail: `${exportCount} MP4 exports`,
           metadata: { exportUrls: batch.exportUrls },
         });
-        steps.push({ step: "clips", ok: true, detail: batch.message, proof: "verified" });
+        track.done({ step: "clips", ok: true, detail: batch.message, proof: "verified" });
       } else if (serverlessPreview || preview) {
         await logVerification({
           showRunId: showId,
@@ -390,7 +439,7 @@ export async function runShowLifecycle(
               ? "Skipped on demo host"
               : "Preview — Shorts export skipped (clips runtime missing or export failed)"),
         });
-        steps.push({
+        track.done({
           step: "clips",
           ok: true,
           detail:
@@ -410,7 +459,7 @@ export async function runShowLifecycle(
           videoId: show.youtubeVideoId,
           detail: batch.message ?? "No MP4 exports produced",
         });
-        steps.push({
+        track.done({
           step: "clips",
           ok: false,
           detail: batch.message ?? "No MP4 exports produced",
@@ -420,14 +469,14 @@ export async function runShowLifecycle(
     } catch (e) {
       const detail = e instanceof Error ? e.message : "failed";
       if (preview) {
-        steps.push({
+        track.done({
           step: "clips",
           ok: true,
           detail: `Preview — Shorts export skipped (${detail})`,
           proof: "skipped",
         });
       } else {
-        steps.push({
+        track.done({
           step: "clips",
           ok: false,
           detail,
@@ -436,11 +485,13 @@ export async function runShowLifecycle(
       }
     }
   } else if (mode === "metadata_only") {
-    steps.push({ step: "clips", ok: true, detail: "skipped (metadata-only run)", proof: "skipped" });
+    track.start("clips");
+    track.done({ step: "clips", ok: true, detail: "skipped (metadata-only run)", proof: "skipped" });
   }
 
   const refreshed = (await getShow(showId))!;
 
+  track.start("post_show");
   try {
     const seo = await runPostShowSeoPass(refreshed, refreshed.clipSourceId);
     const desc = `${refreshed.seoDescription ?? ""}${seo.descriptionAppend}`.trim();
@@ -482,7 +533,7 @@ export async function runShowLifecycle(
       });
     }
 
-    steps.push({
+    track.done({
       step: "post_show",
       ok: preview ? true : postShowWriteOk,
       detail: postShowWriteOk
@@ -493,7 +544,7 @@ export async function runShowLifecycle(
       proof: postShowWriteOk ? "verified" : "draft_only",
     });
   } catch (e) {
-    steps.push({
+    track.done({
       step: "post_show",
       ok: false,
       detail: e instanceof Error ? e.message : "failed",
@@ -501,9 +552,10 @@ export async function runShowLifecycle(
     });
   }
 
+  track.start("comment_queue");
   try {
     const comments = await seedCommentQueue(showId);
-    steps.push({
+    track.done({
       step: "comment_queue",
       ok: comments.length > 0,
       detail:
@@ -513,15 +565,16 @@ export async function runShowLifecycle(
       proof: comments.length > 0 ? "verified" : "draft_only",
     });
   } catch {
-    steps.push({ step: "comment_queue", ok: false, proof: "blocked" });
+    track.done({ step: "comment_queue", ok: false, proof: "blocked" });
   }
 
+  track.start("ig_carousel");
   try {
     const draft = await generateIgCarouselDraft(refreshed, channel);
     await upsertIgCarousel(showId, { ...draft, status: "pending_qc" });
-    steps.push({ step: "ig_carousel", ok: true, detail: "IG carousel draft · QC required", proof: "draft_only" });
+    track.done({ step: "ig_carousel", ok: true, detail: "IG carousel draft · QC required", proof: "draft_only" });
   } catch {
-    steps.push({ step: "ig_carousel", ok: true, detail: "local draft pending QC", proof: "draft_only" });
+    track.done({ step: "ig_carousel", ok: true, detail: "local draft pending QC", proof: "draft_only" });
   }
 
   const failedSteps = steps.filter(
@@ -556,6 +609,8 @@ export async function runShowLifecycle(
   await updateShow(showId, {
     status: runOk ? (preview ? "preview" : "completed") : "blocked",
   });
+
+  track.complete(runOk);
 
   return {
     showId,
