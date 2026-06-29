@@ -167,6 +167,18 @@ export function ChannelRosterView() {
           <pre className="text-[11px] text-dim whitespace-pre-wrap font-mono bg-black/30 p-4 rounded-lg border border-white/5">
             {selected.descriptionTemplate || "No description template yet."}
           </pre>
+          {selected.tags.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {selected.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-dim border border-white/10"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-6 border-t border-white/5 pt-4">
             <div className="flex items-center justify-between gap-3 mb-3">

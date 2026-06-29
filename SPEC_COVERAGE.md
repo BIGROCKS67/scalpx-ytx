@@ -3,6 +3,8 @@
 **Demo:** https://scalpx-ytx.vercel.app/ytx  
 **Repo:** https://github.com/BIGROCKS67/scalpx-ytx  
 **Local:** http://localhost:3001/ytx  
+
+**Demo data:** Auto-seeds on first API load (13 shows · 10 channels with hosts, tags, descriptions, SEO). Reset locally: `npm run seed:demo`. Disable: `YTX_DEMO_SEED=false`.
 **Build spec (print/PDF):** `docs/SCALPX_YTX_BUILD_SPEC.html` · page 7 = DK handoff
 
 Legend: ✅ Done in code · 🟡 Needs ops / real show validation · ⏳ Validate label on live run (Chento)

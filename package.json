@@ -11,6 +11,7 @@
     "test:banter": "npx tsx tests/banter-dry-run.ts",
     "test:api": "npx tsx tests/smoke-api.ts",
     "smoke": "node scripts/smoke-all.mjs",
+    "seed:demo": "npx tsx scripts/seed-demo.ts",
     "postinstall": "node scripts/install-yt-dlp.mjs"
   },
   "dependencies": {

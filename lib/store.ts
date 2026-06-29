@@ -898,11 +898,25 @@ export async function upsertIgCarousel(
 }
 
 export async function getDashboardBundle() {
-  const channels = await seedChannels();
+  await seedChannels();
+  if (process.env.YTX_DEMO_SEED !== "false") {
+    const demo = await import("@/lib/demoSeed");
+    await demo.enrichChannelProfiles();
+    await demo.seedDemoContent();
+  }
   const shows = await listShows();
   const checklistByShow: Record<string, ChecklistItem[]> = {};
   for (const show of shows.slice(0, 20)) {
     checklistByShow[show.id] = await listChecklist(show.id);
   }
-  return { channels, shows, checklistByShow };
+  return { channels: await listChannels(), shows, checklistByShow };
+}
+
+export async function ensureDemoLoaded(): Promise<void> {
+  await seedChannels();
+  if (process.env.YTX_DEMO_SEED !== "false") {
+    const demo = await import("@/lib/demoSeed");
+    await demo.enrichChannelProfiles();
+    await demo.seedDemoContent();
+  }
 }

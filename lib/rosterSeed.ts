@@ -1,5 +1,6 @@
 import type { ShowFormat, YtChannel } from "@/lib/types";
-import { youtubeIdForSlug } from "@/lib/rosterChannelIds";
+import { CHANNEL_PROFILES, demoYoutubeIdForSlug } from "@/lib/demoProfiles";
+import { youtubeIdForSlug as resolveYoutubeId } from "@/lib/rosterChannelIds";
 
 /** Canonical trader slugs - mirrors FlowX Scout traderRoster.ts + Banter */
 export const TRADER_ROSTER = [
@@ -16,43 +17,17 @@ export const TRADER_ROSTER = [
 
 export const ROSTER_SLUG_ORDER = [...TRADER_ROSTER.map((t) => t.slug), "banter"];
 
-const CHENTO_FORMATS: ShowFormat[] = ["banter", "stream", "education"];
-
 export function rosterSeedData(): Omit<YtChannel, "id" | "createdAt" | "updatedAt" | "oauthConnected">[] {
-  const traders = TRADER_ROSTER.map((t) => {
-    const socialLinks: Record<string, string> = {};
-    if (t.xHandle) socialLinks.x = `https://x.com/${t.xHandle}`;
-    return {
-      slug: t.slug,
-      displayName: t.displayName,
-      youtubeChannelId: youtubeIdForSlug(t.slug),
-      trackAccountId: null,
-      descriptionTemplate:
-        t.slug === "chento"
-          ? "Daily market streams, education, and Banter live talk. Not financial advice."
-          : `${t.displayName} - FlowX trader channel.`,
-      tags: t.slug === "chento" ? ["crypto", "trading", "bitcoin", "live"] : ["crypto", "trading"],
-      socialLinks,
-      showFormats: t.slug === "chento" ? CHENTO_FORMATS : (["stream"] as ShowFormat[]),
-      isShowFormat: false,
-      channelTrailerDraft: null,
-    };
-  });
-
-  return [
-    ...traders,
-    {
-      slug: "banter",
-      displayName: "Banter",
-      youtubeChannelId: youtubeIdForSlug("banter"),
-      trackAccountId: null,
-      descriptionTemplate:
-        "Live talk show - guests, market banter, community Q&A. Show format entity · not a trader signal channel.",
-      tags: ["banter", "live", "crypto", "talk", "guests"],
-      socialLinks: {},
-      showFormats: ["banter", "stream"] as ShowFormat[],
-      isShowFormat: true,
-      channelTrailerDraft: null,
-    },
-  ];
+  return CHANNEL_PROFILES.map((p) => ({
+    slug: p.slug,
+    displayName: p.displayName,
+    youtubeChannelId: resolveYoutubeId(p.slug) ?? demoYoutubeIdForSlug(p.slug),
+    trackAccountId: p.trackAccountId,
+    descriptionTemplate: p.descriptionTemplate,
+    tags: p.tags,
+    socialLinks: p.socialLinks,
+    showFormats: p.showFormats as ShowFormat[],
+    isShowFormat: p.isShowFormat,
+    channelTrailerDraft: p.channelTrailerDraft,
+  }));
 }
