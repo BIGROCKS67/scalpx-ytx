@@ -1,4 +1,15 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "redirects": [
+    { "source": "/shows", "destination": "/ytx/shows", "permanent": false },
+    { "source": "/shows/:path*", "destination": "/ytx/shows/:path*", "permanent": false },
+    { "source": "/channels", "destination": "/ytx/channels", "permanent": false },
+    { "source": "/channels/:path*", "destination": "/ytx/channels/:path*", "permanent": false },
+    { "source": "/settings", "destination": "/ytx/settings", "permanent": false },
+    { "source": "/viral", "destination": "/ytx/viral", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/ytx/api/:path*" }
+  ]
 }
