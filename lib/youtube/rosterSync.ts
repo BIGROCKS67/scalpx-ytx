@@ -1,13 +1,13 @@
 import { ROSTER_YOUTUBE_CHANNEL_IDS, ROSTER_YOUTUBE_HANDLES } from "@/lib/rosterYoutubeHandles";
 import { youtubeIdForSlug } from "@/lib/rosterChannelIds";
-import { getSettings, listChannels, listShows, createShow, updateChannel, updateShow } from "@/lib/store";
-import type { ShowFormat, YtChannel } from "@/lib/types";
+import { getSettings, listChannels, updateChannel } from "@/lib/store";
 
 const YT_API = "https://www.googleapis.com/youtube/v3";
 
 export type RosterSyncResult = {
   ok: boolean;
   channelsUpdated: number;
+  /** Legacy field — roster sync no longer auto-creates ShowRuns from old uploads. */
   showsImported: number;
   errors: string[];
 };
@@ -62,62 +62,14 @@ type ChannelPayload = {
   };
   statistics?: { subscriberCount?: string; viewCount?: string };
   brandingSettings?: { channel?: { keywords?: string } };
-  contentDetails?: { relatedPlaylists?: { uploads?: string } };
 };
 
 async function fetchChannel(youtubeId: string, key: string): Promise<ChannelPayload | null> {
   const data = await ytGet<{ items?: ChannelPayload[] }>(key, "/channels", {
-    part: "snippet,statistics,brandingSettings,contentDetails",
+    part: "snippet,statistics,brandingSettings",
     id: youtubeId,
   });
   return data?.items?.[0] ?? null;
-}
-
-type VideoSnippet = {
-  title: string;
-  description: string;
-  tags?: string[];
-  publishedAt: string;
-  liveBroadcastContent?: string;
-};
-
-async function fetchRecentVideos(
-  uploadsPlaylistId: string,
-  key: string,
-  maxResults = 5
-): Promise<Array<{ videoId: string; snippet: VideoSnippet }>> {
-  const list = await ytGet<{
-    items?: Array<{ snippet?: { resourceId?: { videoId?: string }; title?: string; description?: string; publishedAt?: string } }>;
-  }>(key, "/playlistItems", {
-    part: "snippet",
-    playlistId: uploadsPlaylistId,
-    maxResults: String(maxResults),
-  });
-
-  const ids =
-    list?.items
-      ?.map((i) => i.snippet?.resourceId?.videoId)
-      .filter((id): id is string => Boolean(id)) ?? [];
-
-  if (!ids.length) return [];
-
-  const details = await ytGet<{ items?: Array<{ id: string; snippet?: VideoSnippet }> }>(key, "/videos", {
-    part: "snippet",
-    id: ids.join(","),
-  });
-
-  return (
-    details?.items?.map((v) => ({
-      videoId: v.id,
-      snippet: v.snippet ?? { title: "Untitled", description: "", publishedAt: new Date().toISOString() },
-    })) ?? []
-  );
-}
-
-function inferFormat(channel: YtChannel, title: string): ShowFormat {
-  if (channel.slug === "banter" || /banter|ama|guest/i.test(title)) return "banter";
-  if (/education|lesson|how to|guide|101/i.test(title)) return "education";
-  return channel.showFormats[0] ?? "stream";
 }
 
 function socialFromCustomUrl(customUrl: string | undefined): Record<string, string> {
@@ -126,6 +78,7 @@ function socialFromCustomUrl(customUrl: string | undefined): Record<string, stri
   return { youtube: `https://www.youtube.com/@${handle}` };
 }
 
+/** Sync channel metadata from YouTube — does not import past videos as ShowRuns. */
 export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
   const key = await apiKey();
   const result: RosterSyncResult = {
@@ -141,9 +94,6 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
   }
 
   const channels = await listChannels();
-  const existingShows = await listShows();
-  const videoIds = new Set(existingShows.map((s) => s.youtubeVideoId).filter(Boolean));
-  const syncedSlugs = new Set<string>();
 
   for (const channel of channels) {
     try {
@@ -176,35 +126,6 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
         avatarUrl,
       });
       result.channelsUpdated++;
-      syncedSlugs.add(channel.slug);
-
-      const uploads = payload.contentDetails?.relatedPlaylists?.uploads;
-      if (!uploads) continue;
-
-      const videos = await fetchRecentVideos(uploads, key, 5);
-      for (const video of videos) {
-        if (videoIds.has(video.videoId)) continue;
-
-        const isLive = video.snippet.liveBroadcastContent === "live";
-        const { show } = await createShow({
-          channelId: channel.id,
-          title: video.snippet.title,
-          format: inferFormat(channel, video.snippet.title),
-          pipeline: "live",
-          scheduledAt: video.snippet.publishedAt,
-        });
-
-        await updateShow(show.id, {
-          youtubeVideoId: video.videoId,
-          status: isLive ? "live" : "completed",
-          seoTitle: video.snippet.title,
-          seoDescription: video.snippet.description?.slice(0, 5000) ?? "",
-          seoTags: video.snippet.tags?.slice(0, 15) ?? tags.slice(0, 15),
-        });
-
-        videoIds.add(video.videoId);
-        result.showsImported++;
-      }
     } catch (e) {
       result.errors.push(`${channel.slug}: ${e instanceof Error ? e.message : "sync failed"}`);
     }

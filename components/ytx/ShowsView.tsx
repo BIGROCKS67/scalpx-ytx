@@ -10,6 +10,7 @@ import { ContextHeader } from "@/components/shell/ContextHeader";
 import { Button } from "@/components/ui";
 import { ShowVideoCard } from "@/components/ytx/ShowVideoCard";
 import { sortShowsForDashboard } from "@/lib/dashboardInsights";
+import { filterActiveShows, filterArchivedShows } from "@/lib/showFilters";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
 export function ShowsView() {
@@ -22,6 +23,7 @@ export function ShowsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [form, setForm] = useState({
     channelId: preChannel ?? "",
     title: preTitle ?? "",
@@ -84,6 +86,9 @@ export function ShowsView() {
     window.location.href = `/shows/${res.data.show.id}`;
   }
 
+  const activeShows = sortShowsForDashboard(filterActiveShows(shows));
+  const archivedShows = sortShowsForDashboard(filterArchivedShows(shows));
+
   return (
     <WorkspaceShell
       title="New show"
@@ -145,21 +150,36 @@ export function ShowsView() {
     >
       {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
 
-      <ContextHeader title="Shows" subtitle="Your show runs — pick a video to open the lifecycle board" />
+      <ContextHeader
+        title="Shows"
+        subtitle="New ShowRuns only — create a stream, run the lifecycle, then archive when done. Past YouTube uploads live on Home."
+      />
 
       {loading ? (
         <div className="ytx-show-grid">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="ytx-show-card ytx-show-card-skeleton" aria-hidden />
           ))}
         </div>
-      ) : shows.length === 0 ? (
+      ) : activeShows.length === 0 ? (
         <div className="track-panel text-center py-12">
-          <p className="text-dim mb-2">No shows yet. Sync from YouTube on Roster or create one in the panel.</p>
+          <p className="text-ink font-medium mb-2">No active show runs</p>
+          <p className="text-dim text-sm mb-4 max-w-md mx-auto">
+            Create a ShowRun in the panel for your next stream or VOD. Link a YouTube URL on the show board, then Run preview or Full E2E.
+          </p>
+          {archivedShows.length > 0 ? (
+            <button
+              type="button"
+              className="text-xs text-accent hover:underline"
+              onClick={() => setShowArchive(true)}
+            >
+              View {archivedShows.length} archived run{archivedShows.length === 1 ? "" : "s"}
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="ytx-show-grid">
-          {sortShowsForDashboard(shows).map((show) => (
+          {activeShows.map((show) => (
             <ShowVideoCard
               key={show.id}
               show={show}
@@ -168,6 +188,29 @@ export function ShowsView() {
           ))}
         </div>
       )}
+
+      {!loading && archivedShows.length > 0 ? (
+        <div className="mt-8">
+          <button
+            type="button"
+            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-dim hover:text-ink mb-3"
+            onClick={() => setShowArchive((v) => !v)}
+          >
+            {showArchive ? "Hide" : "Show"} archive · {archivedShows.length} completed
+          </button>
+          {showArchive ? (
+            <div className="ytx-show-grid opacity-80">
+              {archivedShows.map((show) => (
+                <ShowVideoCard
+                  key={show.id}
+                  show={show}
+                  channel={channels.find((c) => c.id === show.channelId)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </WorkspaceShell>
   );
 }

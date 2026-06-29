@@ -81,7 +81,9 @@ export function ChannelRosterView() {
       return;
     }
     if (res.data.errors.length) {
-      setError(`Synced ${res.data.channelsUpdated} channels · ${res.data.showsImported} videos. ${res.data.errors.slice(0, 2).join(" · ")}`);
+      setError(
+        `Synced ${res.data.channelsUpdated} channel${res.data.channelsUpdated === 1 ? "" : "s"}. ${res.data.errors.slice(0, 2).join(" · ")}`
+      );
     }
     void load();
   }
