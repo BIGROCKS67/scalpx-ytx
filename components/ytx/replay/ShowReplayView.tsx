@@ -21,6 +21,10 @@ export function ShowReplayView({
   commentsFromYoutube,
   commentSyncError,
   commentsBusy,
+  youtubeUrlInput,
+  onYoutubeUrlChange,
+  onSaveYoutubeUrl,
+  bindVideoBusy,
   onPullFromYoutube,
   onRegenerateReplies,
   onUpdateReply,
@@ -38,6 +42,10 @@ export function ShowReplayView({
   commentsFromYoutube: boolean;
   commentSyncError?: string | null;
   commentsBusy: boolean;
+  youtubeUrlInput: string;
+  onYoutubeUrlChange: (url: string) => void;
+  onSaveYoutubeUrl: () => void;
+  bindVideoBusy: boolean;
   onPullFromYoutube: () => void;
   onRegenerateReplies: () => void;
   onUpdateReply: (id: string, reply: string) => void;
@@ -51,6 +59,27 @@ export function ShowReplayView({
   return (
     <div className="ytx-replay-layout">
       <ShowVideoHero show={show} channel={channel} compact />
+
+      {!linked ? (
+        <div className="ytx-show-status-banner ytx-show-status-banner-warn mb-4">
+          <p className="text-sm font-medium text-ink mb-2">Link the real YouTube video first</p>
+          <p className="text-xs text-dim mb-3">
+            Paste the watch URL for this stream — then Pull from YouTube works with your API key (Settings) or OAuth
+            (Roster).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className="ytx-input flex-1 min-w-[220px] text-sm"
+              placeholder="https://www.youtube.com/watch?v=…"
+              value={youtubeUrlInput}
+              onChange={(e) => onYoutubeUrlChange(e.target.value)}
+            />
+            <Button size="sm" disabled={bindVideoBusy || !youtubeUrlInput.trim()} onClick={onSaveYoutubeUrl}>
+              {bindVideoBusy ? "Saving…" : "Save video URL"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {pendingReplies > 0 ? (
         <div className="ytx-show-status-banner ytx-show-status-banner-info mb-4">

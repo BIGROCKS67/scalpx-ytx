@@ -1,4 +1,5 @@
 import type { CommentReply, LiveChapter, ShowRun, YtChannel } from "@/lib/types";
+import { isBadBanterReplyDraft } from "@/lib/banterReplyVoice";
 
 export type CommentSeed = {
   authorHint: string;
@@ -33,10 +34,9 @@ function firstChapter(show: Pick<ShowRun, "liveChapters">): string | null {
 /** Old template replies — regenerate these on load. */
 export function isStaleGenericDraft(draft: string): boolean {
   if (!draft.trim()) return true;
-  return (
-    /great question|solid point|fair pushback|appreciate you watching|touched on this during the live q&a|full timestamp in the description|check the chapters in the description|we stayed measured on price targets|separating treasury narrative|mapped leaders vs laggards|guest segment is in the chapter list|bell on for the next one|more on that in the weekly playbook|— chento|— crypto banter|— the team/i.test(
-      draft
-    )
+  if (isBadBanterReplyDraft(draft)) return true;
+  return /great question|solid point|touched on this during the live q&a|full timestamp in the description|check the chapters in the description|we stayed measured on price targets|separating treasury narrative|mapped leaders vs laggards|guest segment is in the chapter list|more on that in the weekly playbook|— chento|— crypto banter|— the team/i.test(
+    draft
   );
 }
 
@@ -50,66 +50,75 @@ function replyBanter(
   const altTime = chapterAt(show, /alt|rotation/i) ?? "35:00";
   const qaTime = chapterAt(show, /q&a|community/i) ?? "57:00";
 
-  if (/pinned:|chapters updated|jump to macro/i.test(lower)) {
-    return "🙏";
-  }
-  if (/saylor.*long|everyone long|literally the signal/i.test(lower)) {
-    return "haha headline ≠ position size — we said the same thing live: you can agree with Saylor and still not YOLO. watch the MSTR bit before going max long";
+  if (/pinned:|chapters updated|jump to macro/i.test(lower)) return "🙏";
+  if (/chento.*king|goat chento|best host|legend chento/i.test(lower)) return "🙏";
+  if (/saylor.*long|everyone long|literally the signal|why isn'?t everyone long/i.test(lower)) {
+    return "haha headline ≠ max long — chento walked through why on stream. mstr bit in chapters before you size up (NFA)";
   }
   if (/timestamp|what time|when did you talk|mstr premium/i.test(lower)) {
-    return `${mstrTime} — “MSTR premium vs BTC spot” is in the chapters`;
+    return `${mstrTime} — mstr premium vs btc spot is in the chapters 👍`;
   }
-  if (/best banter|guest segment|fire|goat stream|best stream/i.test(lower)) {
+  if (/best banter|guest segment|fire|goat stream|best stream|stream this month/i.test(lower)) {
     return show.guestName
-      ? `means a lot — ${show.guestName} segment is the one people rewatched most in chat too`
-      : "means a lot — which bit was your favourite? helps us line up the next guest";
+      ? `love to hear it 🙏 ${show.guestName} segment was the one chat kept rewinding`
+      : "love to hear it 🙏 which bit was your fav?";
   }
-  if (/pump narrative|show the levels|invalidate|invalidation/i.test(lower)) {
-    return "fair pushback — we gave the invalidation live (daily losing the level we had on screen). if you want the number not the narrative, skip to that chapter";
+  if (/pump narrative|show the levels|invalidate|invalidation|skeptic/i.test(lower)) {
+    return "fair — invalidation was on screen live. rewind that segment, we don't repost levels in comments (NFA)";
   }
   if (/alts follow|rotate late|alt season|alts lag/i.test(lower)) {
-    return `alts usually lag a vertical BTC move — we walked through that around ${altTime}. not financial advice but that was the framework we used live`;
+    return `alts usually lag a vertical btc move — we hit that around ${altTime} in the VOD. NFA but that was the framework live`;
   }
   if (/first live|eu timezone|recap|replay gang|missed it/i.test(lower)) {
-    return "same upload on the channel — chapters in the description so you can jump straight to the Saylor/macro chunk without sitting through the full VOD";
+    return "same upload on the channel — chapters in desc so you can jump straight to the macro chunk";
   }
-  if (/liquidity grab|that call|insane|called it/i.test(lower)) {
-    return "yeah that was the cleanest read on the stream — glad you were in chat for it";
+  if (/liquidity grab|that call|insane|called it|cleanest read/i.test(lower)) {
+    return "yeah that was the cleanest read on the stream — glad you caught it";
   }
-  if (/meme when|saylor did it meme|clip/i.test(lower)) {
-    return "lol fair — shorts/clips usually drop a day after. bell on if you want the clip upload";
+  if (/meme when|saylor did it meme|clip this|someone clip/i.test(lower)) {
+    return "lol fair — shorts usually drop a day after. bell on for the clip";
   }
-  if (/not financial advice.*invalidation|showing invalidation|respect.*nfa/i.test(lower)) {
-    return "appreciate that — we try to show the level we'd be wrong at, not just the hopium";
+  if (/not financial advice.*invalidation|showing invalidation|respect.*nfa|honest take/i.test(lower)) {
+    return "appreciate that 🙏 we try to show where we'd be wrong, not just hopium";
   }
-  if (/thanks|subbed|honest take|love this|great stream/i.test(lower)) {
-    return "🙏 see you on the next one";
-  }
-  if (/guest.*back|next episode|who was the guest/i.test(lower)) {
+  if (/thanks|subbed|subscribed|love this|great stream|legend$/i.test(lower)) return "🙏";
+  if (/guest.*back|next episode|who was the guest|book again/i.test(lower)) {
     return show.guestName
-      ? `${show.guestName} is always welcome back if the calendar works — drop who you want next in the comments`
-      : "no guest this one but we're booking for next week — who do you want on?";
+      ? `${show.guestName} is always welcome back — drop who you want next`
+      : "no guest this one — who do you want on next week?";
   }
-  if (/timestamp|best moment|which part/i.test(lower)) {
+  if (/timestamp|best moment|which part|where.?s the/i.test(lower)) {
     const t = firstChapter(show);
-    return t ? `chapters are in the desc — start around ${t} or use the Q&A block at ${qaTime}` : "chapters in the description — Q&A block has most of the back-and-forth";
+    return t ? `chapters in desc — start ${t} or hit the Q&A block at ${qaTime}` : `Q&A block at ${qaTime} has most of the back-and-forth`;
   }
-  if (/aged well|called it|you were right/i.test(lower)) {
+  if (/aged well|called it|you were right|nailed it/i.test(lower)) {
     return "we'll take it 😅 market still has to follow through though";
   }
-  if (/stop loss|where was.*stop|invalidation level/i.test(lower)) {
-    return "stop/invalidation was whatever we marked live on the chart — rewind that segment, we don't repost levels in comments (NFA)";
+  if (/stop loss|where was.*stop|invalidation level|what was stop/i.test(lower)) {
+    return "stop was where we marked it on chart live — not reposting levels here, rewind that part (NFA)";
   }
-  if (/levels.*next week|watching next|what levels/i.test(lower)) {
-    return "levels change every session — next live we map it fresh on the chart. bell on for the stream";
+  if (/levels.*next week|watching next|what levels|what.?s next/i.test(lower)) {
+    return "levels change every session — next live we map it fresh. bell on";
   }
-  if (/recap|main thesis|what was.*about/i.test(lower)) {
-    return `tl;dr from this stream: Saylor/MSTR headline vs what spot was actually doing — full breakdown in the VOD, chapters split it up`;
+  if (/recap|main thesis|what was.*about|tl;dr|summarize/i.test(lower)) {
+    return "saylor/mstr headline vs what spot was doing — full breakdown in the VOD, chapters split it up";
+  }
+  if (/overleverag|150 into 1500|small account|turn .* into/i.test(lower)) {
+    return "don't overleverage bro — marathon not a sprint";
+  }
+  if (/will there be alt|alt season\?/i.test(lower)) {
+    return `alt season framework is in the VOD around ${altTime}. NFA — we broke it down live`;
+  }
+  if (/chento|host|who.?s hosting/i.test(lower) && /\?/.test(c)) {
+    return "chento on this one — liquidity trader, breaks it down live on chart";
+  }
+  if (/discord|scalpx|scalp x|community link/i.test(lower)) {
+    return "link's in the description 👍";
   }
   if (/\?/.test(c)) {
-    return `good q — we probably answered it in the ${qaTime} Q&A block if you want the long version`;
+    return `good q — probably in the ${qaTime} Q&A block if you want the long version`;
   }
-  return "appreciate you watching — drop a timestamp if you're looking for a specific moment and we'll point you to it";
+  return "🙏";
 }
 
 function replyChento(

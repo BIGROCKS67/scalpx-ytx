@@ -233,6 +233,73 @@ export async function fetchChannelBaseline(channelId: string, youtubeChannelId: 
   };
 }
 
+export type YoutubeCommentThread = {
+  authorDisplayName: string;
+  textDisplay: string;
+  likeCount: number;
+  replyCount: number;
+};
+
+/** Public comment threads on a video — OAuth first, then API key (same as view counts). */
+export async function fetchVideoCommentThreads(
+  channelId: string,
+  videoId: string,
+  maxResults = 10
+): Promise<{ ok: boolean; threads: YoutubeCommentThread[]; error?: string }> {
+  const res = await ytGetRead<{
+    items?: Array<{
+      snippet?: {
+        totalReplyCount?: number;
+        topLevelComment?: {
+          snippet?: {
+            authorDisplayName?: string;
+            textDisplay?: string;
+            likeCount?: number;
+          };
+        };
+      };
+    }>;
+  }>(channelId, "/commentThreads", {
+    part: "snippet",
+    videoId,
+    maxResults: String(maxResults),
+    order: "relevance",
+    textFormat: "plainText",
+  });
+
+  if (!res.ok || !res.data) {
+    return {
+      ok: false,
+      threads: [],
+      error: res.error
+        ? `YouTube API ${res.status}: ${res.error.slice(0, 120)}`
+        : "YouTube returned no comment data",
+    };
+  }
+
+  const threads: YoutubeCommentThread[] = [];
+  for (const thread of res.data.items ?? []) {
+    const top = thread.snippet?.topLevelComment?.snippet;
+    if (!top?.textDisplay?.trim()) continue;
+    threads.push({
+      authorDisplayName: top.authorDisplayName ?? "YouTube viewer",
+      textDisplay: top.textDisplay,
+      likeCount: top.likeCount ?? 0,
+      replyCount: thread.snippet?.totalReplyCount ?? 0,
+    });
+  }
+
+  if (!threads.length) {
+    return {
+      ok: false,
+      threads: [],
+      error: "No comments returned — video may have comments disabled or none yet",
+    };
+  }
+
+  return { ok: true, threads };
+}
+
 export async function youtubeApiReady(channelId: string): Promise<boolean> {
   const tokens = await getOAuthTokens(channelId);
   if (tokens?.accessToken) return true;

@@ -269,6 +269,11 @@ export function ShowDetailView({ showId }: { showId: string }) {
       setError(res.error);
       return;
     }
+    if (isReplayShowView(res.data.show)) {
+      setData((prev) => (prev ? { ...prev, show: res.data.show } : prev));
+      await pullCommentsFromYoutube();
+      return;
+    }
     void load();
   }
 
@@ -479,6 +484,10 @@ export function ShowDetailView({ showId }: { showId: string }) {
           commentsFromYoutube={commentsFromYoutube}
           commentSyncError={commentSyncError}
           commentsBusy={busy === "comments"}
+          youtubeUrlInput={youtubeUrlInput}
+          onYoutubeUrlChange={setYoutubeUrlInput}
+          onSaveYoutubeUrl={() => void bindYoutubeVideo()}
+          bindVideoBusy={busy === "bind-video"}
           onPullFromYoutube={() => void pullCommentsFromYoutube()}
           onRegenerateReplies={() => void regenerateCommentReplies()}
           onUpdateReply={(id, reply) => {

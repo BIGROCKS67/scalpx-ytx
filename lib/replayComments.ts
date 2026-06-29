@@ -6,17 +6,19 @@ import {
 } from "@/lib/commentIntel";
 import { runWithDb, getDb } from "@/lib/db";
 import { isReplayShowView } from "@/lib/showFilters";
+import { hasLinkedYoutubeVideo } from "@/lib/showMedia";
 import {
   listCommentReplies,
   purgeNonYoutubeComments,
 } from "@/lib/store";
 import type { CommentReply, ShowRun, YtChannel } from "@/lib/types";
 import {
-  canPullYoutubeComments,
   commentsAreFromYoutube,
   commentsNeedYoutubeSync,
+  commentsSyncBlocker,
 } from "@/lib/youtube/commentSync";
 import { syncCommentsFromYoutube } from "@/lib/youtube/comments";
+import { youtubeApiReady } from "@/lib/youtube/dataApi";
 
 function needsNewDraft(comment: CommentReply, force: boolean): boolean {
   if (comment.status !== "pending") return false;
@@ -55,19 +57,14 @@ async function ensureCommentsExist(
   await purgeNonYoutubeComments(show.id);
 
   let items = await listCommentReplies(show.id);
-  const canYoutube = canPullYoutubeComments(show, channel);
+  const readReady = Boolean(channel && (await youtubeApiReady(channel.id)));
+  const blocker = commentsSyncBlocker(show, readReady);
 
-  if (!canYoutube) {
-    return {
-      items: [],
-      syncError: !show.youtubeVideoId?.trim() || show.youtubeVideoId.startsWith("demo_")
-        ? "Paste the real YouTube watch URL on this show"
-        : "Connect YouTube OAuth for this channel on Roster",
-    };
+  if (blocker) {
+    return { items: [], syncError: blocker };
   }
 
   const shouldSync =
-    canYoutube &&
     channel &&
     (opts?.syncYoutube || items.length === 0 || commentsNeedYoutubeSync(items));
 

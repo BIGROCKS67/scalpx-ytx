@@ -86,20 +86,27 @@ export function ShowReplayComments({
   const top = topComments(items, 10);
   const pending = top.filter((c) => c.status === "pending").length;
   const rest = items.length > top.length ? items.length - top.length : 0;
+  const hasSampleComments = items.some((c) => c.commentSource !== "youtube");
+
+  const heading = fromYoutube
+    ? "Real YouTube comments"
+    : hasSampleComments
+      ? "Sample comments (preview)"
+      : "YouTube comments";
+
+  const subheading = fromYoutube
+    ? "Pulled from YouTube — top threads by relevance. Approve AI replies, then post in Studio."
+    : hasSampleComments
+      ? "These are placeholders — link the video and pull from YouTube for real threads."
+      : "Link the watch URL, then pull top comments from YouTube (API key or OAuth).";
 
   return (
     <section className="ytx-replay-comments">
       <header className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <p className="ytx-autofill-label">Top comments</p>
-          <h2 className="text-base font-semibold text-ink mt-1">
-            {fromYoutube ? "Real YouTube comments" : "Sample comments (preview)"}
-          </h2>
-          <p className="text-xs text-dim mt-1">
-            {fromYoutube
-              ? "Pulled from YouTube — top threads by relevance. Approve AI replies, then post in Studio."
-              : "These are placeholders until you link the video and connect YouTube on Roster."}
-          </p>
+          <h2 className="text-base font-semibold text-ink mt-1">{heading}</h2>
+          <p className="text-xs text-dim mt-1">{subheading}</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           {canPullYoutube ? (
@@ -113,14 +120,23 @@ export function ShowReplayComments({
         </div>
       </header>
 
-      {!fromYoutube ? (
+      {!fromYoutube && hasSampleComments ? (
         <div className="ytx-show-status-banner ytx-show-status-banner-warn mb-4 text-sm">
-          Comments marked <strong className="font-semibold">Sample</strong> are not from YouTube. To get real ones: paste
-          the watch URL on the show (if needed), connect OAuth on{" "}
+          Comments marked <strong className="font-semibold">Sample</strong> are not from YouTube. Paste the watch URL,
+          add an API key in <Link href="/settings" className="text-accent hover:underline">Settings</Link> or connect
+          OAuth on{" "}
           <Link href="/channels" className="text-accent hover:underline">
             Roster
           </Link>
           , then click <strong className="font-semibold">Pull from YouTube</strong>.
+        </div>
+      ) : !fromYoutube ? (
+        <div className="ytx-show-status-banner ytx-show-status-banner-warn mb-4 text-sm">
+          Paste the real YouTube watch URL on this show, then click{" "}
+          <strong className="font-semibold">Pull from YouTube</strong>. Works with your API key in{" "}
+          <Link href="/settings" className="text-accent hover:underline">Settings</Link> — OAuth on{" "}
+          <Link href="/channels" className="text-accent hover:underline">Roster</Link> is optional for reading
+          comments.
         </div>
       ) : (
         <div className="ytx-show-status-banner ytx-show-status-banner-info mb-4 text-sm">
@@ -153,7 +169,10 @@ export function ShowReplayComments({
         </>
       ) : (
         <div className="ytx-replay-empty">
-          <p className="text-sm text-dim">No comments loaded yet.</p>
+          <p className="text-sm text-dim">
+            No comments loaded yet.
+            {canPullYoutube ? " Link the video if needed, then pull from YouTube." : " Paste the watch URL on this show first."}
+          </p>
           {canPullYoutube ? (
             <Button size="sm" className="mt-3" disabled={busy} onClick={onPullFromYoutube}>
               Pull from YouTube

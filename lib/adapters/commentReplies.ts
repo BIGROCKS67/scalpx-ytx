@@ -1,5 +1,10 @@
+import {
+  BANTER_REPLY_RULES,
+  formatBanterFewShotBlock,
+  isBadBanterReplyDraft,
+} from "@/lib/banterReplyVoice";
+import { draftReplyForComment, isStaleGenericDraft } from "@/lib/commentIntel";
 import { buildShowDraftIntel } from "@/lib/showDraftIntel";
-import { draftReplyForComment } from "@/lib/commentIntel";
 import { getSettings } from "@/lib/store";
 import type { CommentReply, ShowRun, YtChannel } from "@/lib/types";
 
@@ -14,22 +19,17 @@ function formatChapterTime(atSec: number): string {
 
 function voiceGuide(channel: YtChannel | null): string {
   if (channel?.slug === "banter") {
-    return `You reply as Crypto Banter (hosted by Chento Trades) — a live talk show, NOT a signal channel.
-Tone: casual, witty, short (1-3 sentences max). Like real YouTube comment replies on Banter streams.
-- Answer ONLY what they asked or said — quote their point if helpful
-- Use "haha", "fair", "lol" sparingly when it fits
-- Timestamp requests → give chapter time from context if available
-- Never say "Great question", "Solid point", "touched on this during the live Q&A"
-- Never sign off with "— Crypto Banter" or channel name
-- Don't repost exact trade levels in comments — point to VOD/chapters (NFA)
-- Thanks/praise → often just "🙏" or one short line
-- Pinned/mod comments → reply "🙏" only`;
+    return `${BANTER_REPLY_RULES}
+
+Study these real Banter-style pairs — match this energy exactly (unique reply per new comment):
+
+${formatBanterFewShotBlock()}`;
   }
   if (channel?.slug === "chento") {
-    return `You reply as Chento Trades — live Bitcoin/crypto trading streams, real execution on chart.
-Tone: direct, terse, trader voice. 1-2 sentences usually. Sometimes just "🙏".
-- Answer the specific comment — stops, timestamps, alts, prop firm, etc.
-- Never give "you should long/short" — say what was done live on chart (NFA)
+    return `You reply as Chento Trades on YouTube — live Bitcoin/crypto trading streams.
+Tone: direct, terse, trader voice. 1-2 sentences. Sometimes just "🙏".
+- Answer the specific comment — stops, timestamps, alts, prop firm
+- Never give "you should long/short" — what was done live on chart (NFA)
 - Don't paste levels in comments — "rewind that segment" / "chapters in desc"
 - No corporate AI filler or signatures`;
   }
@@ -52,7 +52,7 @@ function buildPrompt(
   const system = `${voiceGuide(channel)}
 
 Return JSON only: { "replies": [ { "id": "<comment id>", "reply": "<your reply text>" } ] }
-One unique reply per comment id. Each reply must be different and directly about that comment.`;
+Every reply must be UNIQUE, short, and sound like a human Banter mod — not an AI assistant.`;
 
   const user = `Show title: ${show.title}
 Channel: ${channel?.displayName ?? "Unknown"}
@@ -60,10 +60,10 @@ Format: ${show.format}${show.guestName ? ` · guest: ${show.guestName}` : ""}
 Topics: ${intel?.topics.join(", ") ?? "crypto"}
 Stream hook: ${intel?.hookLine ?? ""}
 
-Chapters (use for timestamp answers):
+Chapters (use exact times for timestamp answers):
 ${chapters}
 
-Comments to reply to (JSON):
+Comments to reply to — write like the examples above, but specific to each comment:
 ${JSON.stringify(
   comments.map((c) => ({
     id: c.id,
@@ -92,6 +92,12 @@ function parseAiReplies(raw: string): Map<string, string> {
   return out;
 }
 
+function isBadDraft(draft: string, channel: YtChannel | null): boolean {
+  if (isStaleGenericDraft(draft)) return true;
+  if (channel?.slug === "banter" && isBadBanterReplyDraft(draft)) return true;
+  return false;
+}
+
 function templateFallback(
   show: ShowRun,
   channel: YtChannel | null,
@@ -102,7 +108,23 @@ function templateFallback(
   );
 }
 
-/** Generate unique draft replies via DeepSeek; falls back to templates if no key or API error. */
+function mergeReplies(
+  show: ShowRun,
+  channel: YtChannel | null,
+  comments: Pick<CommentReply, "id" | "commentText">[],
+  ai: Map<string, string>
+): Map<string, string> {
+  const merged = templateFallback(show, channel, comments);
+  for (const c of comments) {
+    const aiReply = ai.get(c.id)?.trim();
+    if (aiReply && !isBadDraft(aiReply, channel)) {
+      merged.set(c.id, aiReply);
+    }
+  }
+  return merged;
+}
+
+/** Generate unique draft replies via DeepSeek; falls back to Banter-voice templates if no key or bad output. */
 export async function generateCommentReplyDrafts(
   show: ShowRun,
   channel: YtChannel | null,
@@ -132,8 +154,8 @@ export async function generateCommentReplyDrafts(
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.85,
-        max_tokens: 2000,
+        temperature: 0.72,
+        max_tokens: 1800,
         response_format: { type: "json_object" },
       }),
     });
@@ -147,12 +169,7 @@ export async function generateCommentReplyDrafts(
     const raw = data.choices?.[0]?.message?.content?.trim();
     if (!raw) return templateFallback(show, channel, comments);
 
-    const ai = parseAiReplies(raw);
-    const merged = templateFallback(show, channel, comments);
-    for (const [id, reply] of ai) {
-      if (reply.trim()) merged.set(id, reply);
-    }
-    return merged;
+    return mergeReplies(show, channel, comments, parseAiReplies(raw));
   } catch (e) {
     console.error("[commentReplies] DeepSeek error", e);
     return templateFallback(show, channel, comments);

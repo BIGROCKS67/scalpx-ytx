@@ -1,14 +1,7 @@
 import { randomUUID } from "crypto";
 import { getDb, runWithDb } from "@/lib/db";
 import type { CommentReply } from "@/lib/types";
-
-const YT_API = "https://www.googleapis.com/youtube/v3";
-
-async function resolveAccessToken(channelId: string): Promise<string | null> {
-  const { getOAuthTokens } = await import("@/lib/store");
-  const tokens = await getOAuthTokens(channelId);
-  return tokens?.accessToken ?? null;
-}
+import { fetchVideoCommentThreads } from "@/lib/youtube/dataApi";
 
 function listCommentRepliesSync(showRunId: string): CommentReply[] {
   const rows = getDb()
@@ -38,67 +31,24 @@ export type YoutubeCommentSyncResult = {
   imported: number;
 };
 
-/** Import real YouTube comment threads for a video (OAuth required). Replaces existing rows. */
+/** Import real YouTube comment threads (OAuth or API key + linked video id). */
 export async function syncCommentsFromYoutube(
   showRunId: string,
   channelId: string,
   videoId: string,
   maxResults = 10
 ): Promise<YoutubeCommentSyncResult> {
-  const token = await resolveAccessToken(channelId);
-  if (!token) {
+  const fetched = await fetchVideoCommentThreads(channelId, videoId, maxResults);
+  if (!fetched.ok) {
+    const error =
+      fetched.error === "No YouTube credentials"
+        ? "Add YouTube API key in Settings or connect OAuth on Roster"
+        : fetched.error;
     return {
       ok: false,
       imported: 0,
       items: listCommentRepliesSync(showRunId),
-      error: "YouTube OAuth not connected for this channel",
-    };
-  }
-
-  const qs = new URLSearchParams({
-    part: "snippet",
-    videoId,
-    maxResults: String(maxResults),
-    order: "relevance",
-    textFormat: "plainText",
-  });
-
-  const res = await fetch(`${YT_API}/commentThreads?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    return {
-      ok: false,
-      imported: 0,
-      items: listCommentRepliesSync(showRunId),
-      error: `YouTube API ${res.status}${detail ? `: ${detail.slice(0, 120)}` : ""}`,
-    };
-  }
-
-  const data = (await res.json()) as {
-    items?: Array<{
-      snippet?: {
-        totalReplyCount?: number;
-        topLevelComment?: {
-          snippet?: {
-            authorDisplayName?: string;
-            textDisplay?: string;
-            likeCount?: number;
-          };
-        };
-      };
-    }>;
-  };
-
-  const threads = data.items ?? [];
-  if (!threads.length) {
-    return {
-      ok: false,
-      imported: 0,
-      items: listCommentRepliesSync(showRunId),
-      error: "No comments returned — video may have comments disabled or none yet",
+      error,
     };
   }
 
@@ -112,17 +62,15 @@ export async function syncCommentsFromYoutube(
     );
 
     let imported = 0;
-    for (const thread of threads) {
-      const top = thread.snippet?.topLevelComment?.snippet;
-      if (!top?.textDisplay) continue;
+    for (const thread of fetched.threads) {
       stmt.run({
         id: randomUUID(),
         showRunId,
-        authorHint: top.authorDisplayName ?? "YouTube viewer",
-        commentText: top.textDisplay.slice(0, 2000),
+        authorHint: thread.authorDisplayName,
+        commentText: thread.textDisplay.slice(0, 2000),
         draftReply: "",
-        likeCount: top.likeCount ?? 0,
-        replyCount: thread.snippet?.totalReplyCount ?? 0,
+        likeCount: thread.likeCount,
+        replyCount: thread.replyCount,
         commentSource: "youtube",
         status: "pending",
         createdAt: now,

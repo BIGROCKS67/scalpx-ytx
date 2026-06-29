@@ -1,12 +1,12 @@
 import { hasLinkedYoutubeVideo } from "@/lib/showMedia";
 import type { CommentReply, ShowRun, YtChannel } from "@/lib/types";
 
-/** True when we can pull real comment threads from YouTube Data API (OAuth + real video id). */
+/** True when the show has a real YouTube video id to pull public comments from. */
 export function canPullYoutubeComments(
   show: Pick<ShowRun, "youtubeVideoId">,
-  channel: YtChannel | null
+  _channel?: YtChannel | null
 ): boolean {
-  return hasLinkedYoutubeVideo(show) && Boolean(channel?.oauthConnected);
+  return hasLinkedYoutubeVideo(show);
 }
 
 export function commentsAreFromYoutube(items: CommentReply[]): boolean {
@@ -16,4 +16,17 @@ export function commentsAreFromYoutube(items: CommentReply[]): boolean {
 export function commentsNeedYoutubeSync(items: CommentReply[]): boolean {
   if (!items.length) return true;
   return items.some((c) => c.commentSource !== "youtube");
+}
+
+export function commentsSyncBlocker(
+  show: Pick<ShowRun, "youtubeVideoId">,
+  youtubeReadReady: boolean
+): string | undefined {
+  if (!hasLinkedYoutubeVideo(show)) {
+    return "Paste the real YouTube watch URL on this show";
+  }
+  if (!youtubeReadReady) {
+    return "Add YouTube API key in Settings or connect OAuth on Roster";
+  }
+  return undefined;
 }
