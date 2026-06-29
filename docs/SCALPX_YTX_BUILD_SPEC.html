@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScalpX · YTX · Build Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; font-size: 9.5pt; color: #111114; background: #0a0a0c; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  h1, h2, .cover-title { font-family: 'Plus Jakarta Sans', sans-serif; }
+  @page { size: A4 portrait; margin: 12mm 14mm; }
+  @media print {
+    body { background: #fff; font-size: 9pt; }
+    .print-btn { display: none !important; }
+    .sheet { margin: 0 !important; box-shadow: none !important; page-break-after: always; min-height: 0 !important; }
+    .sheet:last-of-type { page-break-after: auto; }
+    th, .callout, .cover, .phase-head, .stat-strip, .flex-card { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    tr { page-break-inside: avoid; }
+  }
+  @media screen {
+    .sheet { width: 210mm; min-height: 297mm; margin: 0 auto 28px; box-shadow: 0 4px 24px rgba(9,9,11,0.18); background: #fff; }
+  }
+  .print-btn { position: fixed; top: 22px; right: 24px; z-index: 9999; background: #059669; color: #fff; border: none; padding: 11px 22px; border-radius: 7px; font-size: 10pt; font-weight: 600; cursor: pointer; }
+  .sheet { background: #fff; }
+  .sheet-body { padding: 40px 48px 44px; }
+  .page-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; margin-bottom: 22px; border-bottom: 1px solid #e0e0e5; font-size: 8pt; color: #636370; }
+  .page-num { color: #059669; font-weight: 700; }
+  .cover { min-height: 297mm; display: flex; flex-direction: column; justify-content: center; padding: 56px 52px; background: linear-gradient(135deg, #050807 0%, #0a1210 50%, #050807 100%); color: #fff; }
+  .cover-eyebrow { font-size: 9pt; letter-spacing: 5px; text-transform: uppercase; color: #6ee7b7; margin-bottom: 16px; }
+  .cover-title { font-size: 30pt; font-weight: 800; letter-spacing: -1px; line-height: 1.08; margin-bottom: 14px; }
+  .cover-sub { font-size: 11pt; color: #d1fae5; max-width: 34em; line-height: 1.5; margin-bottom: 32px; }
+  .cover-meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 440px; margin-bottom: 28px; }
+  .cover-meta-label { font-size: 7pt; letter-spacing: 2px; text-transform: uppercase; color: #6ee7b7; margin-bottom: 4px; }
+  .cover-meta-value { font-size: 10.5pt; font-weight: 600; color: #f0fdf4; }
+  .cover-foot { margin-top: 28px; font-size: 7.5pt; color: #6ee7b7; letter-spacing: 1.2px; text-transform: uppercase; }
+  .section-tag { display: inline-block; background: #111114; color: #fff; font-size: 7pt; letter-spacing: 2px; text-transform: uppercase; padding: 4px 10px; border-radius: 3px; margin-bottom: 10px; }
+  h1 { font-size: 16pt; font-weight: 800; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid #059669; }
+  h2 { font-size: 9.5pt; font-weight: 700; margin: 14px 0 6px; color: #047857; }
+  p { margin-bottom: 10px; color: #444; font-size: 9.5pt; }
+  .lead { font-size: 10pt; color: #222; border-left: 4px solid #059669; padding: 11px 13px; background: rgba(5,150,105,0.05); margin-bottom: 16px; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 8pt; }
+  th { background: #111114; color: #fff; padding: 8px 7px; text-align: left; font-size: 6.5pt; font-weight: 600; vertical-align: top; }
+  td { padding: 7px 7px; border-bottom: 1px solid #e0e0e5; vertical-align: top; color: #333; line-height: 1.38; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .phase-head { background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 6px; padding: 8px 12px; font-size: 9pt; font-weight: 700; color: #047857; margin: 14px 0 8px; }
+  .callout-dark { background: #111114; color: #f0fdf4; border-radius: 8px; padding: 12px 14px; margin: 12px 0; font-size: 9pt; }
+  .callout-dark strong { color: #6ee7b7; }
+  .ease { font-size: 7pt; font-weight: 700; color: #059669; }
+  .tag-auto { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #d1fae5; color: #047857; }
+  .tag-partial { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #fef3c7; color: #b45309; }
+  .tag-manual { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #e5e7eb; color: #374151; }
+  .tag-live { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; }
+  .tag-qc { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #cffafe; color: #0e7490; }
+  .tag-aug { font-size: 6.5pt; font-weight: 700; padding: 2px 5px; border-radius: 3px; background: #ede9fe; color: #6d28d9; }
+  .stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #e0e0e5; border-radius: 8px; overflow: hidden; margin: 12px 0; }
+  .stat-item { padding: 12px 8px; text-align: center; border-right: 1px solid #e0e0e5; background: #fafafa; }
+  .stat-item:last-child { border-right: none; }
+  .stat-label { font-size: 6pt; text-transform: uppercase; color: #636370; margin-bottom: 3px; }
+  .stat-value { font-size: 11pt; font-weight: 800; }
+  .flex-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  .flex-card { border: 1px solid #e0e0e5; border-radius: 8px; padding: 10px 12px; background: #fafafa; }
+  .flex-card h3 { font-size: 8.5pt; color: #047857; margin: 0 0 6px; }
+  .flex-card ul { margin: 0 0 0 14px; font-size: 7.5pt; color: #444; }
+  .flex-card li { margin-bottom: 3px; }
+  .path-flow { font-family: monospace; font-size: 8pt; background: #f8f8f8; padding: 12px 14px; border-radius: 6px; line-height: 1.65; color: #333; margin: 10px 0; }
+  code { font-size: 7.5pt; background: #f0f0f2; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<button class="print-btn" onclick="window.print()">Export PDF</button>
+
+<!-- COVER -->
+<section class="sheet cover">
+  <div class="cover-eyebrow">ScalpX · Standalone product</div>
+  <h1 class="cover-title">YTX</h1>
+  <p class="cover-sub">YouTube lifecycle ops for the conglomerate. A <strong>standalone ScalpX product</strong> at <code>/ytx</code> - one show-lifecycle engine for every YouTube channel in the toolkit. Multi-roster · Banter · full pre/during/post pipeline. Reuses capabilities we already have (Clips, Content, Deals) via adapters - not an extension of Studio or any existing route.</p>
+  <div class="cover-meta">
+    <div><div class="cover-meta-label">Product</div><div class="cover-meta-value">YTX · standalone</div></div>
+    <div><div class="cover-meta-label">Deadline</div><div class="cover-meta-value">3 July 2026</div></div>
+    <div><div class="cover-meta-label">Build priority</div><div class="cover-meta-value">#1 on roadmap</div></div>
+    <div><div class="cover-meta-label">Route</div><div class="cover-meta-value">/ytx · own app shell</div></div>
+  </div>
+  <p class="cover-foot">ScalpX · Standalone product · Build spec · Master roadmap p.26</p>
+</section>
+
+<!-- WHAT WE BUILD -->
+<section class="sheet">
+  <div class="sheet-body">
+    <div class="page-header"><span><strong>ScalpX · YTX · Build Spec</strong></span><span class="page-num">2 / 6</span></div>
+    <span class="section-tag">Architecture</span>
+    <h1>What we are building</h1>
+    <p class="lead"><strong>YTX</strong> = a <strong>standalone ScalpX product</strong> - its own route, data model, and UI. One show-lifecycle engine: pick any roster channel · run one checklist through channel setup → pre-show → live → post-show. Same engine for Chento Trades, Banter, and all 9 traders. We <strong>pull in</strong> what we already built (Whisper, YT import, publish queue, Deals CRM) - we do <strong>not</strong> extend <code>/studio</code> or bolt onto existing modules.</p>
+
+    <div class="stat-strip">
+      <div class="stat-item"><div class="stat-label">Reusable libs</div><div class="stat-value">~15%</div></div>
+      <div class="stat-item"><div class="stat-label">Product built</div><div class="stat-value">0%</div></div>
+      <div class="stat-item"><div class="stat-label">Ship date</div><div class="stat-value">3 Jul</div></div>
+      <div class="stat-item"><div class="stat-label">Ship target</div><div class="stat-value">70%</div></div>
+      <div class="stat-item"><div class="stat-label">Channels</div><div class="stat-value">10</div></div>
+    </div>
+    <p style="font-size:7.5pt;color:#666;margin:-4px 0 12px;"><strong>~15%</strong> = reusable Clips · Content · Deals libs · <strong>0%</strong> = <code>/ytx</code> product today · <strong>70% by 3 Jul</strong> = full standalone product - checklist · adapters · OAuth · live analytics · all 10 channels</p>
+
+    <h2>Core objects (data model · owned by YTX)</h2>
+    <table>
+      <thead><tr><th>Entity</th><th>What it stores</th><th>Where it lives</th></tr></thead>
+      <tbody>
+        <tr><td><strong>YtChannel</strong></td><td>YT channel ID · per creator · social links · description template · tags · linked Track account · format flags (Banter show entity separate from trader slug)</td><td><code>/ytx</code> roster</td></tr>
+        <tr><td><strong>ShowRun</strong></td><td>One live/VOD episode · schedule · format (Banter/stream/education) · guest · sponsor deal ID</td><td><code>/ytx</code> show board</td></tr>
+        <tr><td><strong>ShowChecklist</strong></td><td>38 tasks · phase · status · auto/manual · timestamps</td><td><code>/ytx</code> checklist UI</td></tr>
+        <tr><td><strong>SponsorBlock</strong></td><td>URLs + copy from Deals · <code>TrackingLink.destinationUrl</code> via <code>dealId</code> · #ad flag · live URL check</td><td>YTX · adapter → Deals + Convert</td></tr>
+        <tr><td><strong>CrossPostQueue</strong></td><td>YT Community · X · IG · FB · Reddit drafts from show metadata</td><td>YTX · adapter → Content</td></tr>
+        <tr><td><strong>ClipBatch</strong></td><td>3–5 Shorts + X moments from transcript · linked to ShowRun</td><td>YTX · adapter → Clips libs</td></tr>
+        <tr><td><strong>EndScreenDB</strong></td><td>Video graph for cards/end screens · bucket tracker</td><td><code>/ytx</code> own table</td></tr>
+        <tr><td><strong>ShowAnalytics</strong></td><td>Waiting room · peak viewers · spike topics · 24hr views</td><td>YTX · YT Data API · OAuth · ship <strong>3 Jul</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Product boundary · what we reuse vs own</h2>
+    <div class="path-flow">
+<strong>YTX (standalone · /ytx)</strong><br>
+  Own: roster · ShowRun · ShowChecklist · EndScreenDB · show UI · lifecycle state<br>
+  ↓ adapters only - no shared routes or merged nav<br>
+<strong>Pull in (reuse · don't rebuild)</strong><br>
+  Clips libs: YT import · Whisper · transcript · moment detect · Shorts export<br>
+  Content libs: multi-platform publish queue · scheduled posts<br>
+  Deals API: <code>TrackingLink</code> + <code>dealId</code> · sponsor URLs · #ad copy<br>
+  Track API: views · engagement per channel (read-only)<br>
+  Convert: tracked links on descriptions when in funnel stage (optional hook)
+    </div>
+
+    <div class="callout-dark">
+      <strong>Blockers - clear by 29 Jun:</strong> Collect <strong>YouTube channel IDs</strong> for all 10 roster entries · load sponsor <code>TrackingLink</code> rows per active deal · Banter = show-format entity · GCP + YouTube OAuth app credentials in Settings.
+    </div>
+
+    <div class="callout-dark">
+      <strong>Not this:</strong> extending <code>/studio</code> kanban · hardcoded <code>studio_channel_chento</code> · shared Studio nav. <strong>Is this:</strong> new product · new entities · new route · optional adapters into existing libs when it saves build time.
+    </div>
+  </div>
+</section>
+
+<!-- BUILD FLEX -->
+<section class="sheet">
+  <div class="sheet-body">
+    <div class="page-header"><span><strong>ScalpX · YTX · Build Spec</strong></span><span class="page-num">3 / 6</span></div>
+    <span class="section-tag">Build sprint · ship 3 Jul 2026</span>
+    <h1>What we ship · 28 Jun → 3 Jul</h1>
+
+    <div class="flex-grid">
+      <div class="flex-card">
+        <h3>Day 1–2 · Foundation</h3>
+        <ul>
+          <li><code>/ytx</code> app shell + nav (standalone product)</li>
+          <li>YtChannel roster - 9 traders + Chento + Banter show entity</li>
+          <li><strong>youtubeChannelId</strong> per channel (ops · day 0)</li>
+          <li>ShowRun + ShowChecklist UI (38 tasks · phases)</li>
+          <li>YouTube OAuth - GCP app · token storage · per-channel connect</li>
+        </ul>
+      </div>
+      <div class="flex-card">
+        <h3>Day 3–4 · Pre/during show</h3>
+        <ul>
+          <li>SEO pack generator (title · description · tags)</li>
+          <li>Deals adapter → sponsor block from <code>TrackingLink</code></li>
+          <li>Content adapter → CrossPostQueue drafts</li>
+          <li>Live ops panel · chapter helper · description patch log</li>
+          <li>Waiting room + peak viewer log (<code>concurrentViewers</code>)</li>
+        </ul>
+      </div>
+      <div class="flex-card">
+        <h3>Day 5 · Post-show pipeline</h3>
+        <ul>
+          <li>Clips adapter - one-click import · transcript · moments</li>
+          <li>3–5 Shorts queue · X clip export</li>
+          <li>EndScreenDB v1 · post-show SEO pass</li>
+          <li>A/B reminder · comment reply queue</li>
+        </ul>
+      </div>
+      <div class="flex-card">
+        <h3>Day 6 · 3 Jul · Ship</h3>
+        <ul>
+          <li>All 10 channels runnable end-to-end</li>
+          <li>One Banter show dry-run through full checklist</li>
+          <li>Adapter smoke tests · OAuth on ≥1 channel</li>
+          <li><strong>70% lifecycle automated · product live</strong></li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Already in the toolkit (pull in · don't rebuild)</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>Source module</th><th>How YTX uses it</th></tr></thead>
+      <tbody>
+        <tr><td>YT import · Whisper · captions · export</td><td>Clips libs</td><td><span class="tag-live">Adapter</span> · post-show pipeline</td></tr>
+        <tr><td>Multi-platform publish</td><td>Content libs</td><td><span class="tag-partial">Adapter</span> · cross-post queue</td></tr>
+        <tr><td>Sponsor deal CRM + tracking links</td><td>Deals + Convert</td><td><span class="tag-live">Adapter</span> · <code>TrackingLink</code> by <code>dealId</code></td></tr>
+        <tr><td>Channel analytics</td><td>Track API</td><td><span class="tag-live">Read-only</span> · roster context</td></tr>
+        <tr><td>Studio kanban · YT sync</td><td><code>/studio</code></td><td><span class="tag-manual">Separate</span> · not extended · may deprecate overlap later</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Full ship scope · 3 Jul 2026</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Ships 3 Jul</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Product</strong></td><td><code>/ytx</code> · YtChannel roster (10) · ShowRun · ShowChecklist (38 tasks) · EndScreenDB</td></tr>
+        <tr><td><strong>OAuth + API</strong></td><td>Per-channel YouTube OAuth · metadata write · waiting room · peak viewers · quota plan</td></tr>
+        <tr><td><strong>Adapters</strong></td><td>Deals/<code>TrackingLink</code> sponsor block · Clips post-show · Content cross-post · Track read-only</td></tr>
+        <tr><td><strong>Exit</strong></td><td>Any roster channel runs full lifecycle · Banter dry-run passed · no <code>/studio</code> dependency</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Ship criteria · 3 Jul (done = live)</h2>
+    <div class="callout-dark">
+      <code>/ytx</code> live · 10-channel roster · full ShowChecklist · OAuth connected · sponsor via <code>TrackingLink</code> · post-show → Clips one-click · cross-post via Content · live analytics on show day. <strong>70% of 38 tasks automated.</strong> Banter + all traders + Chento.
+    </div>
+  </div>
+</section>
+
+<!-- TASK MAP PRE/DURING -->
+<section class="sheet">
+  <div class="sheet-body">
+    <div class="page-header"><span><strong>ScalpX · YTX · Build Spec</strong></span><span class="page-num">4 / 6</span></div>
+    <span class="section-tag">Task → build map</span>
+    <h1>Full checklist · what the tool handles</h1>
+    <p class="muted" style="font-size:8pt;margin-bottom:10px;"><span class="tag-auto">Auto</span> = YTX handles by 3 Jul · <span class="tag-partial">Assist</span> = UI + templates · human approves · <span class="tag-manual">Manual</span> = checklist · human judgment</p>
+
+    <div class="phase-head">▶ Channel setup + pre-show</div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Build</th><th>YTX handles</th></tr></thead>
+      <tbody>
+        <tr><td>3.2</td><td>Channel description</td><td><span class="tag-auto">Auto</span></td><td>AI from roster prompt template · editable</td></tr>
+        <tr><td>3.1</td><td>Channel tags</td><td><span class="tag-auto">Auto</span></td><td>Generated from description · stored on YtChannel</td></tr>
+        <tr><td>3.3</td><td>Link social accounts</td><td><span class="tag-partial">Assist</span></td><td>Roster stores X · IG · TG · Discord links</td></tr>
+        <tr><td>3.4</td><td>Thumbnail brief</td><td><span class="tag-partial">Assist</span></td><td>Export brief doc from ShowRun metadata</td></tr>
+        <tr><td>1.1</td><td>SEO title options</td><td><span class="tag-auto">Auto</span></td><td>3 options from prior YT data + brief</td></tr>
+        <tr><td>-</td><td>A/B thumbnail variants</td><td><span class="tag-partial">Assist</span></td><td>Track variants on ShowRun · reminder pre-live</td></tr>
+        <tr><td>1.2</td><td>Video description</td><td><span class="tag-auto">Auto</span></td><td>SEO pack · ~3 sentences · keywords</td></tr>
+        <tr><td>2.1</td><td>Sponsor links</td><td><span class="tag-auto">Auto</span></td><td>Deals adapter inject · live URL check · #ad</td></tr>
+        <tr><td>1.3</td><td>Show tags (10–15)</td><td><span class="tag-auto">Auto</span></td><td>Tag suggest from brief + VidIQ-style rules</td></tr>
+        <tr><td>1.4</td><td>Playlists</td><td><span class="tag-partial">Assist</span></td><td>Checklist + playlist IDs on channel profile</td></tr>
+        <tr><td>3.5</td><td>Collab / guest</td><td><span class="tag-partial">Assist</span></td><td>Guest fields on ShowRun → description block</td></tr>
+        <tr><td>1.5</td><td>Channel trailer</td><td><span class="tag-qc">Auto + QC</span></td><td>AI script + highlight picks · approve on roster</td></tr>
+        <tr><td>1.6</td><td>Upload settings</td><td><span class="tag-partial">Assist</span></td><td>Pre-flight checklist · category · language · monetisation</td></tr>
+        <tr><td>1.7–3.6</td><td>Pre-show social (6 platforms)</td><td><span class="tag-auto">Auto</span></td><td>CrossPostQueue → Content adapter · scheduled T-60min</td></tr>
+        <tr><td>1.11</td><td>Waiting room baseline</td><td><span class="tag-auto">Auto</span></td><td>YT API snapshot · alert vs rolling avg · OAuth</td></tr>
+      </tbody>
+    </table>
+
+    <div class="phase-head">▶ During show</div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Build</th><th>YTX handles</th></tr></thead>
+      <tbody>
+        <tr><td>1.12</td><td>Live SEO timestamps</td><td><span class="tag-auto">Auto</span></td><td>Chapters from transcript / live markers · push to description</td></tr>
+        <tr><td>1.13</td><td>Update links live</td><td><span class="tag-auto">Auto</span></td><td>Sponsor + tracked links patched during show</td></tr>
+        <tr><td>2.3</td><td>Post value live</td><td><span class="tag-manual">Manual</span></td><td>Checklist · optional Content quick-post</td></tr>
+        <tr><td>3.7</td><td>Peak live viewers</td><td><span class="tag-auto">Auto</span></td><td><code>concurrentViewers</code> log · OAuth + live broadcast ID</td></tr>
+        <tr><td>1.14</td><td>Peak moments / topics</td><td><span class="tag-auto">Auto</span></td><td>Spike log → Clips adapter moment detect</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- TASK MAP POST + ROSTER -->
+<section class="sheet">
+  <div class="sheet-body">
+    <div class="page-header"><span><strong>ScalpX · YTX · Build Spec</strong></span><span class="page-num">5 / 6</span></div>
+    <span class="section-tag">Post-show + roster</span>
+    <h1>Post-show automation + channel roster</h1>
+
+    <div class="phase-head">▶ Post-show</div>
+    <table>
+      <thead><tr><th>ID</th><th>Task</th><th>Build</th><th>YTX handles</th></tr></thead>
+      <tbody>
+        <tr><td>1.15</td><td>A/B title &amp; thumbnail</td><td><span class="tag-partial">Assist</span></td><td>+48h reminder · link to YT Studio test</td></tr>
+        <tr><td>1.16–1.17</td><td>Tags + timestamps cleanup</td><td><span class="tag-auto">Auto</span></td><td>Post-show SEO pass from transcript</td></tr>
+        <tr><td>1.18</td><td>End screens &amp; cards</td><td><span class="tag-auto">Auto</span></td><td>EndScreenDB · suggest related videos</td></tr>
+        <tr><td>1.19</td><td>Transcript translate</td><td><span class="tag-auto">Auto</span></td><td>Download · clean · multi-lang caption upload</td></tr>
+        <tr><td>1.20</td><td>Transcript → description</td><td><span class="tag-auto">Auto</span></td><td>Keyword enrich + chapter accuracy</td></tr>
+        <tr><td>3.8</td><td>Tag guests / partners</td><td><span class="tag-partial">Assist</span></td><td>Auto from ShowRun guest fields</td></tr>
+        <tr><td>1.21</td><td>End-screen bucket</td><td><span class="tag-auto">Auto</span></td><td>Log to EndScreenDB graph</td></tr>
+        <tr><td>1.22</td><td>Comment replies</td><td><span class="tag-qc">Auto + QC</span></td><td>AI drafts all replies · approve / reject / edit before post</td></tr>
+        <tr><td>2.4</td><td>IG carousels</td><td><span class="tag-qc">Auto + QC</span></td><td>AI slides + caption · human QC before Content publish</td></tr>
+        <tr><td>1.23</td><td>X clips</td><td><span class="tag-auto">Auto</span></td><td>2–3 moments from transcript timestamps</td></tr>
+        <tr><td>1.24</td><td>YT Shorts (3–5)</td><td><span class="tag-auto">Auto</span></td><td>YTX → Clips adapter · export queue</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Channel roster (YtChannel entities)</h2>
+    <table>
+      <thead><tr><th>Slug</th><th>Display</th><th>Show formats</th><th>Build status</th></tr></thead>
+      <tbody>
+        <tr><td>chento</td><td>Chento Trades</td><td>Banter · education · stream</td><td><span class="tag-manual">Planned</span> · greenfield in YTX</td></tr>
+        <tr><td>thomas</td><td>Thomas</td><td>stream · clips</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>king-azoulay</td><td>King Azoulay</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>paladin</td><td>Paladin</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>dmitry</td><td>Dmitry</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>piltr</td><td>PILTR</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>madda</td><td>Madda</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>nick-scalps</td><td>Nick</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>yassin</td><td>Yassin</td><td>-</td><td><span class="tag-manual">Planned</span></td></tr>
+        <tr><td>banter</td><td>Banter (show format)</td><td>Live talk · guests</td><td><span class="tag-manual">Planned</span> · show entity · not a trader slug</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout-dark" style="margin-top:16px;">
+      <strong>Ship 3 Jul:</strong> Standalone · <code>/ytx</code> · 38-task lifecycle · 10 channels · OAuth · adapters · reusable libs ~15% · product 0% today → <strong>70% live</strong>. Build #1 · Master p.26.
+    </div>
+  </div>
+</section>
+
+<!-- CHENTO ADDENDUM -->
+<section class="sheet">
+  <div class="sheet-body">
+    <div class="page-header"><span><strong>ScalpX · YTX · Build Spec</strong></span><span class="page-num">6 / 6</span></div>
+    <span class="section-tag">Addendum · 29 Jun 2026</span>
+    <h1>Chento direction · AI YouTube Studio</h1>
+    <p class="lead"><strong>Assignment:</strong> YTX is YouTube Studio, except AI fills in the blanks - not a human typing everything. Do <strong>not</strong> extend <code>/studio</code> kanban. Human role = QC only: approve · reject · edit · re-run.</p>
+
+    <h2>Two pipelines</h2>
+    <table>
+      <thead><tr><th>Pipeline</th><th>When</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag-live">Live stream</span></td><td>Going live on YouTube</td><td>Waiting room · auto chapters · auto link patches · peak viewers · spike moments</td></tr>
+        <tr><td><span class="tag-aug">Pre-recorded</span></td><td>Upload / VOD first</td><td>Upload pre-flight · skip live-only tasks · post-publish SEO + Clips heavier</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Task mode upgrades</h2>
+    <table>
+      <thead><tr><th>Task</th><th>Was</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td>1.5 Channel trailer</td><td>Manual</td><td><span class="tag-qc">Auto + QC</span></td></tr>
+        <tr><td>1.12 Live SEO timestamps</td><td>Assist</td><td><span class="tag-auto">Auto</span></td></tr>
+        <tr><td>1.13 Update links live</td><td>Assist</td><td><span class="tag-auto">Auto</span></td></tr>
+        <tr><td>1.22 Comment replies</td><td>Assist</td><td><span class="tag-qc">Auto + QC</span></td></tr>
+        <tr><td>2.4 IG carousels</td><td>Assist</td><td><span class="tag-qc">Auto + QC</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout-dark" style="margin-top:16px;">
+      <strong>28 Auto tasks</strong> (3 QC-gated: 1.5 · 1.22 · 2.4) · dual pipeline · full lifecycle dry-run · local Clips · OAuth write paths when connected. Source: WhatsApp · Chento → Jack · 29/06/2026.
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

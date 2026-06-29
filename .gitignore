@@ -1,0 +1,8 @@
+node_modules
+.next
+data/*
+!data/roster-channel-ids.example.json
+.env.local
+*.tsbuildinfo
+.DS_Store
+bin/
