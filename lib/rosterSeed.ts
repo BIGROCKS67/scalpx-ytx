@@ -1,5 +1,5 @@
 import type { ShowFormat, YtChannel } from "@/lib/types";
-import { CHANNEL_PROFILES, demoYoutubeIdForSlug } from "@/lib/demoProfiles";
+import { CHANNEL_PROFILES } from "@/lib/demoProfiles";
 import { youtubeIdForSlug as resolveYoutubeId } from "@/lib/rosterChannelIds";
 
 /** Canonical trader slugs - mirrors FlowX Scout traderRoster.ts + Banter */
@@ -21,7 +21,7 @@ export function rosterSeedData(): Omit<YtChannel, "id" | "createdAt" | "updatedA
   return CHANNEL_PROFILES.map((p) => ({
     slug: p.slug,
     displayName: p.displayName,
-    youtubeChannelId: resolveYoutubeId(p.slug) ?? demoYoutubeIdForSlug(p.slug),
+    youtubeChannelId: resolveYoutubeId(p.slug),
     trackAccountId: p.trackAccountId,
     descriptionTemplate: p.descriptionTemplate,
     tags: p.tags,

@@ -3,7 +3,7 @@ import { generateCrossPosts } from "@/lib/adapters/content";
 import { DEMO_SHOWS, CHANNEL_PROFILES, profileBySlug } from "@/lib/demoProfiles";
 
 export function demoSeedEnabled(): boolean {
-  return process.env.YTX_DEMO_SEED !== "false";
+  return process.env.YTX_DEMO_SEED === "true";
 }
 
 function clearShowData(): void {

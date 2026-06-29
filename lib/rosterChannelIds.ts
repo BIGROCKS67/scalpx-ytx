@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { demoYoutubeIdForSlug } from "@/lib/demoProfiles";
+import { ROSTER_YOUTUBE_CHANNEL_IDS } from "@/lib/rosterYoutubeHandles";
 import { dataDirectory } from "@/lib/storage";
 
 /** Ops file: data/roster-channel-ids.json - { "chento": "UC…", "banter": "UC…" } */
@@ -29,8 +29,5 @@ export function youtubeIdForSlug(slug: string): string | null {
   const map = loadRosterChannelIds();
   const id = map[slug]?.trim();
   if (id) return id;
-  if (process.env.YTX_DEMO_SEED !== "false") {
-    return demoYoutubeIdForSlug(slug);
-  }
-  return null;
+  return ROSTER_YOUTUBE_CHANNEL_IDS[slug] ?? null;
 }

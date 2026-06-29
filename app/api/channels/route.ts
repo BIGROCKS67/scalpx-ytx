@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { ensureDemoLoaded, listChannels } from "@/lib/store";
+import { ensureRosterData, listChannels } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    await ensureDemoLoaded();
+    await ensureRosterData();
     const channels = await listChannels();
     return NextResponse.json({ channels });
   } catch (e) {

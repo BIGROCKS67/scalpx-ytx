@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createShow, ensureDemoLoaded, listShows } from "@/lib/store";
+import { createShow, ensureRosterData, listShows } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   try {
-    await ensureDemoLoaded();
+    await ensureRosterData();
     const channelId = req.nextUrl.searchParams.get("channelId") ?? undefined;
     const shows = await listShows(channelId);
     return NextResponse.json({ shows });

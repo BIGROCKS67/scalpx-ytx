@@ -249,6 +249,7 @@ export async function updateChannel(
   patch: Partial<
     Pick<
       YtChannel,
+      | "displayName"
       | "youtubeChannelId"
       | "trackAccountId"
       | "descriptionTemplate"
@@ -264,6 +265,7 @@ export async function updateChannel(
     if (!existing) return null;
     const updated: YtChannel = {
       ...existing,
+      displayName: patch.displayName !== undefined ? patch.displayName : existing.displayName,
       youtubeChannelId:
         patch.youtubeChannelId !== undefined ? patch.youtubeChannelId : existing.youtubeChannelId,
       trackAccountId:
@@ -284,7 +286,7 @@ export async function updateChannel(
     getDb()
       .prepare(
         `UPDATE channels SET
-          youtubeChannelId=@youtubeChannelId, trackAccountId=@trackAccountId,
+          displayName=@displayName, youtubeChannelId=@youtubeChannelId, trackAccountId=@trackAccountId,
           descriptionTemplate=@descriptionTemplate, tagsJson=@tagsJson,
           socialLinksJson=@socialLinksJson, oauthConnected=@oauthConnected,
           channelTrailerDraftJson=@channelTrailerDraftJson, updatedAt=@updatedAt
@@ -292,6 +294,7 @@ export async function updateChannel(
       )
       .run({
         id,
+        displayName: updated.displayName,
         youtubeChannelId: updated.youtubeChannelId,
         trackAccountId: updated.trackAccountId,
         descriptionTemplate: updated.descriptionTemplate,
@@ -898,12 +901,7 @@ export async function upsertIgCarousel(
 }
 
 export async function getDashboardBundle() {
-  await seedChannels();
-  if (process.env.YTX_DEMO_SEED !== "false") {
-    const demo = await import("@/lib/demoSeed");
-    await demo.enrichChannelProfiles();
-    await demo.seedDemoContent();
-  }
+  await ensureRosterData();
   const shows = await listShows();
   const checklistByShow: Record<string, ChecklistItem[]> = {};
   for (const show of shows.slice(0, 20)) {
@@ -912,11 +910,16 @@ export async function getDashboardBundle() {
   return { channels: await listChannels(), shows, checklistByShow };
 }
 
-export async function ensureDemoLoaded(): Promise<void> {
+export async function ensureRosterData(): Promise<void> {
   await seedChannels();
-  if (process.env.YTX_DEMO_SEED !== "false") {
+  const { syncRosterFromYoutube } = await import("@/lib/youtube/rosterSync");
+  await syncRosterFromYoutube();
+  if (process.env.YTX_DEMO_SEED === "true") {
     const demo = await import("@/lib/demoSeed");
     await demo.enrichChannelProfiles();
     await demo.seedDemoContent();
   }
 }
+
+/** @deprecated use ensureRosterData */
+export const ensureDemoLoaded = ensureRosterData;

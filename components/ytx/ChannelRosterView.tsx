@@ -67,6 +67,25 @@ export function ChannelRosterView() {
     }
   }
 
+  async function syncFromYoutube() {
+    setBusy("sync");
+    const res = await fetchJson<{
+      ok: boolean;
+      channelsUpdated: number;
+      showsImported: number;
+      errors: string[];
+    }>("/api/roster/sync-youtube", { method: "POST" });
+    setBusy(null);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    if (res.data.errors.length) {
+      setError(`Synced ${res.data.channelsUpdated} channels · ${res.data.showsImported} videos. ${res.data.errors.slice(0, 2).join(" · ")}`);
+    }
+    void load();
+  }
+
   return (
     <WorkspaceShell
       title="Channels"
@@ -92,8 +111,14 @@ export function ChannelRosterView() {
 
       <ContextHeader
         title="Roster"
-        subtitle="10 channels · OAuth and trailer QC per entity"
+        subtitle="Live data from YouTube API · descriptions, tags, recent uploads"
       />
+
+      <div className="mb-4">
+        <Button size="sm" disabled={busy === "sync"} onClick={() => void syncFromYoutube()}>
+          {busy === "sync" ? "Syncing…" : "Sync from YouTube"}
+        </Button>
+      </div>
 
       {loading ? (
         <p className="text-dim">Loading roster…</p>
