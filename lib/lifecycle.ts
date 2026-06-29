@@ -5,6 +5,7 @@ import { runChannelSetup } from "@/lib/channelSetup";
 import { ACTION_TASKS, checklistSummary, markTasksDone } from "@/lib/checklistAutomation";
 import { applyLiveLinkAndChapterUpdate, generateLiveChapters } from "@/lib/liveOps";
 import { runPostShowSeoPass } from "@/lib/postShow";
+import { checkClipsReadiness } from "@/lib/clips/readiness";
 import { preflightShowRun, type PreflightMode, isPreviewMode } from "@/lib/readiness/preflight";
 import { isServerlessDemoHost } from "@/lib/runtimeHost";
 import { generateSeoPack } from "@/lib/seoPack";
@@ -33,6 +34,7 @@ import {
   lifecycleStepLabel,
   type LifecycleProgressEvent,
 } from "@/lib/lifecycleProgress";
+import { isPastShowRun } from "@/lib/showFilters";
 
 export type LifecycleStep = {
   step: string;
@@ -150,7 +152,6 @@ export async function runShowLifecycle(
   const mode: PreflightMode = opts?.mode ?? "full";
   const preview = isPreviewMode(mode);
   const emit = opts?.onProgress;
-  const preflight = await preflightShowRun(showId, mode);
 
   const proof: LifecycleProof = {
     youtubeVideoId: null,
@@ -180,6 +181,12 @@ export async function runShowLifecycle(
     },
   };
 
+  const showPeek = await getShow(showId);
+  track.plan(showPeek ? buildLifecycleStepPlan(showPeek, mode) : ["preflight"]);
+  track.start("preflight");
+
+  const preflight = await preflightShowRun(showId, mode);
+
   if (!preflight.ready) {
     await logVerification({
       showRunId: showId,
@@ -190,7 +197,7 @@ export async function runShowLifecycle(
       detail: preflight.blockers.map((b) => b.code).join(", "),
       metadata: { blockers: preflight.blockers },
     });
-    if (preflight.channel) {
+    if (preflight.channel && mode === "full") {
       await updateShow(showId, { status: "blocked" });
     }
     const failStep: LifecycleStep = {
@@ -200,7 +207,6 @@ export async function runShowLifecycle(
       proof: "blocked",
     };
     track.plan(["preflight"]);
-    track.start("preflight");
     track.done(failStep);
     track.complete(false);
     return {
@@ -218,8 +224,6 @@ export async function runShowLifecycle(
   const channel = (await getChannel(show.channelId))!;
   proof.youtubeVideoId = show.youtubeVideoId;
 
-  track.plan(buildLifecycleStepPlan(show, mode));
-  track.start("preflight");
   track.done({ step: "preflight", ok: true, detail: "All required checks passed", proof: "verified" });
 
   track.start("channel_setup");
@@ -248,6 +252,7 @@ export async function runShowLifecycle(
       seoTitle: pack.titles[0] ?? null,
       seoDescription: pack.description,
       seoTags: pack.tags,
+      thumbnailVariant: "brief_ready",
     });
     await markTasksDone(showId, ACTION_TASKS.seoPack);
     track.done({ step: "seo_pack", ok: true, detail: "SEO drafts saved locally", proof: "draft_only" });
@@ -316,6 +321,16 @@ export async function runShowLifecycle(
       if (analytics.source === "youtube_api") {
         await markTasksDone(showId, [...ACTION_TASKS.analyticsWaiting, ...ACTION_TASKS.analyticsPeak]);
         track.done({ step: "analytics", ok: true, detail: analytics.source, proof: "verified" });
+      } else if (preview) {
+        proof.analyticsSource = "skipped";
+        track.done({
+          step: "analytics",
+          ok: true,
+          detail: show.youtubeVideoId
+            ? "No YouTube metrics yet — snapshot skipped in preview"
+            : "No video linked — analytics after go-live URL is bound",
+          proof: "skipped",
+        });
       } else {
         track.done({
           step: "analytics",
@@ -403,7 +418,26 @@ export async function runShowLifecycle(
   if ((mode === "full" || preview) && youtubeUrl) {
     const serverlessPreview = preview && isServerlessDemoHost();
     track.start("clips");
-    try {
+    const clipsReady = preview ? (await checkClipsReadiness()).ready : true;
+    const skipPreviewClips = preview && (!clipsReady || serverlessPreview);
+
+    if (skipPreviewClips) {
+      const detail = serverlessPreview
+        ? "Skipped on demo host — Shorts export on local :3001 or via Scout"
+        : "Preview — Shorts export skipped · install yt-dlp + ffmpeg for MP4 clips";
+      await updateClipBatch(showId, { status: "idle", message: detail });
+      await logVerification({
+        showRunId: showId,
+        channelId: channel.id,
+        action: "clips_export",
+        ok: true,
+        source: "local_only",
+        videoId: show.youtubeVideoId,
+        detail,
+      });
+      track.done({ step: "clips", ok: true, detail, proof: "skipped" });
+    } else {
+      try {
       await updateClipBatch(showId, { status: "importing", message: "Lifecycle clips…" });
       const batch = await runClipsPipeline(youtubeUrl);
       await updateClipBatch(showId, batch);
@@ -466,7 +500,7 @@ export async function runShowLifecycle(
           proof: "blocked",
         });
       }
-    } catch (e) {
+      } catch (e) {
       const detail = e instanceof Error ? e.message : "failed";
       if (preview) {
         track.done({
@@ -483,7 +517,24 @@ export async function runShowLifecycle(
           proof: "blocked",
         });
       }
+      }
     }
+  } else if (preview) {
+    track.start("clips");
+    track.done({
+      step: "clips",
+      ok: true,
+      detail: "No video linked — Shorts skipped until go-live URL is bound",
+      proof: "skipped",
+    });
+  } else if (mode === "full" && !youtubeUrl) {
+    track.start("clips");
+    track.done({
+      step: "clips",
+      ok: false,
+      detail: "Link a YouTube video before Full E2E clips export",
+      proof: "blocked",
+    });
   } else if (mode === "metadata_only") {
     track.start("clips");
     track.done({ step: "clips", ok: true, detail: "skipped (metadata-only run)", proof: "skipped" });
@@ -606,9 +657,17 @@ export async function runShowLifecycle(
     metadata: { proof, mode, steps: steps.map((s) => ({ step: s.step, ok: s.ok, proof: s.proof })) },
   });
 
-  await updateShow(showId, {
-    status: runOk ? (preview ? "preview" : "completed") : "blocked",
-  });
+  const nextStatus: ShowRun["status"] = runOk
+    ? preview
+      ? isPastShowRun(refreshed)
+        ? "completed"
+        : "preview"
+      : "completed"
+    : mode === "full"
+      ? "blocked"
+      : refreshed.status;
+
+  await updateShow(showId, { status: nextStatus });
 
   track.complete(runOk);
 

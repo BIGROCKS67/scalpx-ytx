@@ -46,27 +46,58 @@ function ffprobeForFfmpeg(ffmpegBin: string): string {
   return fs.existsSync(probe) ? probe : "ffprobe";
 }
 
+const EXEC_PROBE_TIMEOUT_MS = 6_000;
+
 function readFilterCaps(bin: string): Promise<{ subtitles: boolean; drawtext: boolean }> {
   return new Promise((resolve) => {
     const child = spawn(bin, ["-hide_banner", "-filters"], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
+    let settled = false;
+    const finish = (caps: { subtitles: boolean; drawtext: boolean }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already exited */
+      }
+      resolve(caps);
+    };
+    const timer = setTimeout(
+      () => finish({ subtitles: false, drawtext: false }),
+      EXEC_PROBE_TIMEOUT_MS
+    );
     child.stdout.on("data", (d) => (out += d.toString()));
     child.stderr.on("data", (d) => (out += d.toString()));
     child.on("close", () => {
-      resolve({
+      finish({
         subtitles: /\bsubtitles\b/.test(out),
         drawtext: /\bdrawtext\b/.test(out),
       });
     });
-    child.on("error", () => resolve({ subtitles: false, drawtext: false }));
+    child.on("error", () => finish({ subtitles: false, drawtext: false }));
   });
 }
 
 function binaryExists(bin: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(bin, ["-version"], { stdio: ["ignore", "pipe", "pipe"] });
-    child.on("close", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already exited */
+      }
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), EXEC_PROBE_TIMEOUT_MS);
+    child.on("close", (code) => finish(code === 0));
+    child.on("error", () => finish(false));
   });
 }
 

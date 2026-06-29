@@ -68,8 +68,8 @@ export function StatTile({
 }) {
   return (
     <div className={`instrument rounded-lg px-3 py-2.5 ${className}`}>
-      <p className="text-xs font-medium text-dim">{label}</p>
-      <p className={`text-xl font-bold font-mono mt-0.5 ${tone ?? "text-ink"}`}>{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-dim">{label}</p>
+      <p className={`text-2xl font-extrabold font-mono mt-0.5 tracking-tight ${tone ?? "text-ink"}`}>{value}</p>
       {sub && <p className="text-[11px] text-dim mt-0.5">{sub}</p>}
     </div>
   );

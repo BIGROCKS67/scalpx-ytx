@@ -20,14 +20,17 @@ export function ReadinessPanel({
   blockers,
   warnings,
   ready,
+  loading = false,
   mode = "full",
   host,
   proof,
   verification,
+  compact = false,
 }: {
   blockers: ReadinessBlocker[];
   warnings: string[];
   ready: boolean;
+  loading?: boolean;
   mode?: "full" | "metadata_only" | "preview";
   host?: {
     serverless: boolean;
@@ -42,17 +45,25 @@ export function ReadinessPanel({
     qcStillPending: string[];
   };
   verification?: VerificationRow[];
+  /** Hide duplicate blocker list when parent already shows checks. */
+  compact?: boolean;
 }) {
   return (
-    <section className="track-panel mb-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-ink">Readiness</h2>
-        <Badge tone={ready ? "good" : "bad"}>
-          {ready ? (mode === "preview" ? "Preview ready" : "Ready") : "Blocked"}
-        </Badge>
-      </div>
+    <section className={`track-panel mb-4 space-y-3 ${compact ? "!p-0 !bg-transparent !border-0 !shadow-none" : ""}`}>
+      {!compact ? (
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">Readiness</h2>
+          <Badge tone={loading ? "neutral" : ready ? "good" : "bad"}>
+            {loading ? "Checking…" : ready ? (mode === "preview" ? "Preview ready" : "Ready") : "Blocked"}
+          </Badge>
+        </div>
+      ) : null}
 
-      {blockers.length > 0 ? (
+      {!compact && loading ? (
+        <p className="text-sm text-dim">Checking API key, linked video, and host…</p>
+      ) : null}
+
+      {!compact && !loading && blockers.length > 0 ? (
         <ul className="space-y-2 text-sm">
           {blockers.map((b) => (
             <li key={b.code} className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
@@ -61,17 +72,19 @@ export function ReadinessPanel({
             </li>
           ))}
         </ul>
-      ) : (
+      ) : null}
+
+      {!compact && !loading && blockers.length === 0 ? (
         <p className="text-sm text-dim">
           {mode === "preview"
             ? host?.serverless
-              ? "Ready for preview on demo host — API key + linked video. Clips export skipped here."
-              : "Ready for preview — API key + linked video. OAuth not required; Shorts export optional if yt-dlp/ffmpeg installed."
-            : "All required checks passed for a full end-to-end run."}
+              ? "Ready for preview on demo host — SEO and drafts without OAuth. Clips export skipped here."
+              : "Ready for preview — run SEO, cross-post drafts, and checklist without OAuth. Link a YouTube URL when ready for Shorts and publish."
+            : "All required checks passed for a full publish run."}
         </p>
-      )}
+      ) : null}
 
-      {warnings.length > 0 ? (
+      {!compact && warnings.length > 0 ? (
         <ul className="text-xs text-dim space-y-1">
           {warnings.map((w) => (
             <li key={w}>· {w}</li>

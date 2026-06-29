@@ -1,4 +1,5 @@
 import { CHECKLIST_TASKS, taskById } from "@/lib/checklistTasks";
+import { isPastShowRun } from "@/lib/showFilters";
 import {
   PHASE_ORDER,
   type ChecklistItem,
@@ -82,6 +83,7 @@ export function buildAttentionQueue(
   const now = Date.now();
 
   for (const show of shows) {
+    if (isPastShowRun(show)) continue;
     const ch = channels.find((c) => c.id === show.channelId);
     const checklist = checklistByShow[show.id] ?? [];
     const prog = progressForShow(checklist);

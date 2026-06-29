@@ -4,11 +4,13 @@ import Link from "next/link";
 import type { ShowRun, YtChannel } from "@/lib/types";
 import { PIPELINE_LABELS } from "@/lib/pipelines";
 import { statusLabel } from "@/lib/dashboardInsights";
-import { channelInitial, showStatusTone, showThumbnailUrl } from "@/lib/showMedia";
+import { hasLinkedYoutubeVideo, showStatusTone, showThumbnailUrl } from "@/lib/showMedia";
 import { ChannelAvatar } from "@/components/ytx/ChannelAvatar";
+import { ShowThumbnailPlaceholder } from "@/components/ytx/ShowThumbnailPlaceholder";
 import { Badge } from "@/components/ui";
 
 export function ShowVideoCard({ show, channel }: { show: ShowRun; channel?: YtChannel }) {
+  const linked = hasLinkedYoutubeVideo(show);
   const thumb = showThumbnailUrl(show);
   const channelName = channel?.displayName ?? "Channel";
   const when = show.scheduledAt
@@ -25,9 +27,7 @@ export function ShowVideoCard({ show, channel }: { show: ShowRun; channel?: YtCh
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumb} alt="" className="ytx-show-card-img" loading="lazy" />
         ) : (
-          <div className="ytx-show-card-placeholder">
-            <span className="text-2xl font-bold text-white/20">{channelInitial(channelName)}</span>
-          </div>
+          <ShowThumbnailPlaceholder channel={channel} variant="card" />
         )}
         <div className="ytx-show-card-badges">
           {show.status === "live" ? (
@@ -45,7 +45,7 @@ export function ShowVideoCard({ show, channel }: { show: ShowRun; channel?: YtCh
           <p className="ytx-show-card-meta">
             {PIPELINE_LABELS[show.pipeline]}
             {when ? ` · ${when}` : ""}
-            {!show.youtubeVideoId ? " · No video linked" : ""}
+            {!linked ? " · No video linked" : ""}
           </p>
         </div>
       </div>

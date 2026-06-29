@@ -11,6 +11,7 @@ import { ContextHeader } from "@/components/shell/ContextHeader";
 import { Badge, Button, SkeletonStatTile, StatTile } from "@/components/ui";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { YoutubeAnalyticsSection } from "@/components/ytx/YoutubeAnalyticsSection";
+import { filterActiveShows } from "@/lib/showFilters";
 import type { YoutubeDashboardAnalytics } from "@/lib/youtube/dashboardAnalytics";
 
 type DashboardPayload = {
@@ -49,14 +50,7 @@ export function YtxHome() {
 
   const liveCount = data?.shows.filter((s) => s.status === "live").length ?? 0;
   const qcCount = data?.counts.totalQcTasks ?? 0;
-  const actionableShows = data?.shows.filter((s) => {
-    if (["live", "blocked", "preview", "draft", "scheduled"].includes(s.status)) return true;
-    if (s.status === "completed") {
-      const prog = data.showProgress.find((p) => p.showId === s.id);
-      return (prog?.qcPending ?? 0) > 0 || (prog?.pct ?? 0) > 0;
-    }
-    return false;
-  });
+  const actionableShows = data ? filterActiveShows(data.shows) : [];
 
   return (
     <WorkspaceShell

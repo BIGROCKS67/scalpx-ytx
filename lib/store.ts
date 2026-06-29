@@ -1,5 +1,8 @@
 import { randomUUID } from "crypto";
+import { isFakeAnalyticsSource } from "@/lib/analyticsLegit";
+export { isLegitAnalyticsSnapshot } from "@/lib/analyticsLegit";
 import { filterActiveChannels, isActiveChannelSlug } from "@/lib/activeChannels";
+import { seedInitialShowMetadata } from "@/lib/showDraftBootstrap";
 import { CHECKLIST_TASKS } from "@/lib/checklistTasks";
 import { getDb, parseJsonArray, parseJsonObject, runWithDb } from "@/lib/db";
 import { defaultPipelineForFormat, isLiveOnlyTask } from "@/lib/pipelines";
@@ -371,6 +374,8 @@ export async function createShow(input: {
     const now = new Date().toISOString();
     const format = input.format ?? "stream";
     const pipeline = input.pipeline ?? defaultPipelineForFormat(format);
+    const channel = getChannelSync(input.channelId);
+    const seeded = seedInitialShowMetadata(input.title, channel);
     const show: ShowRun = {
       id: randomUUID(),
       channelId: input.channelId,
@@ -383,10 +388,10 @@ export async function createShow(input: {
       youtubeVideoId: null,
       youtubeBroadcastId: null,
       status: "draft",
-      seoTitle: null,
-      seoDescription: null,
-      seoTags: [],
-      thumbnailVariant: null,
+      seoTitle: seeded.seoTitle,
+      seoDescription: seeded.seoDescription,
+      seoTags: seeded.seoTags,
+      thumbnailVariant: seeded.thumbnailVariant,
       clipSourceId: null,
       descriptionPatchLog: [],
       liveChapters: [],
@@ -661,6 +666,38 @@ export async function listAnalytics(showRunId: string): Promise<AnalyticsSnapsho
   });
 }
 
+/** Remove estimated/demo analytics — replay board is YouTube-verified only. */
+export async function purgeFakeAnalytics(showRunId: string): Promise<number> {
+  return runWithDb(() => {
+    const rows = getDb()
+      .prepare("SELECT id, metadataJson FROM analytics_snapshots WHERE showRunId = ?")
+      .all(showRunId) as { id: string; metadataJson: string }[];
+    let n = 0;
+    const del = getDb().prepare("DELETE FROM analytics_snapshots WHERE id = ?");
+    for (const row of rows) {
+      const meta = parseJsonObject(row.metadataJson);
+      const src = String(meta.source ?? "");
+      if (isFakeAnalyticsSource(src)) {
+        del.run(row.id);
+        n++;
+      }
+    }
+    return n;
+  });
+}
+
+/** Remove sample/unknown comments — only YouTube-sourced threads stay. */
+export async function purgeNonYoutubeComments(showRunId: string): Promise<number> {
+  return runWithDb(() => {
+    const r = getDb()
+      .prepare(
+        "DELETE FROM comment_replies WHERE showRunId = ? AND (commentSource IS NULL OR commentSource != 'youtube')"
+      )
+      .run(showRunId);
+    return r.changes;
+  });
+}
+
 export async function listEndScreenEdges(fromVideoId?: string): Promise<EndScreenEdge[]> {
   return runWithDb(() => {
     const rows = fromVideoId
@@ -772,6 +809,9 @@ function rowToComment(row: Record<string, unknown>): CommentReply {
     authorHint: (row.authorHint as string) ?? "",
     commentText: row.commentText as string,
     draftReply: (row.draftReply as string) ?? "",
+    likeCount: Number(row.likeCount ?? 0),
+    replyCount: Number(row.replyCount ?? 0),
+    commentSource: (row.commentSource as CommentReply["commentSource"]) ?? "unknown",
     status: row.status as CommentReply["status"],
     createdAt: row.createdAt as string,
     updatedAt: row.updatedAt as string,
@@ -781,7 +821,9 @@ function rowToComment(row: Record<string, unknown>): CommentReply {
 export async function listCommentReplies(showRunId: string): Promise<CommentReply[]> {
   return runWithDb(() => {
     const rows = getDb()
-      .prepare("SELECT * FROM comment_replies WHERE showRunId = ? ORDER BY createdAt DESC")
+      .prepare(
+        "SELECT * FROM comment_replies WHERE showRunId = ? ORDER BY likeCount DESC, replyCount DESC, createdAt DESC"
+      )
       .all(showRunId) as Record<string, unknown>[];
     return rows.map(rowToComment);
   });
@@ -789,9 +831,12 @@ export async function listCommentReplies(showRunId: string): Promise<CommentRepl
 
 export async function seedCommentQueue(showRunId: string, _showTitle?: string): Promise<CommentReply[]> {
   const show = await getShow(showRunId);
-  if (!show?.youtubeVideoId) return listCommentRepliesSync(showRunId);
-  const { syncCommentsFromYoutube } = await import("@/lib/youtube/comments");
-  return syncCommentsFromYoutube(showRunId, show.channelId, show.youtubeVideoId);
+  if (!show) return [];
+
+  const channel = await getChannel(show.channelId);
+  const { ensureReplayCommentQueue } = await import("@/lib/replayComments");
+  const result = await ensureReplayCommentQueue(show, channel, { force: true });
+  return result.items;
 }
 
 function listCommentRepliesSync(showRunId: string): CommentReply[] {

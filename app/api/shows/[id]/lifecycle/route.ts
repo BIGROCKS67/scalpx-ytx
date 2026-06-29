@@ -57,7 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return new Response(stream, {
         headers: {
           "Content-Type": "application/x-ndjson; charset=utf-8",
-          "Cache-Control": "no-store",
+          "Cache-Control": "no-store, no-transform",
+          "X-Accel-Buffering": "no",
         },
       });
     }

@@ -34,13 +34,19 @@ async function main() {
   assert.ok(blocked.blockers.some((b) => b.code === "youtube_write_missing"));
   console.log("  ✓ blocks without video + OAuth");
 
+  process.env.YTX_YOUTUBE_API_KEY = process.env.YTX_YOUTUBE_API_KEY ?? "test-api-key";
+  const previewNoVideo = await preflightShowRun(show.id, "preview");
+  assert.equal(previewNoVideo.ready, true, "preview should run without linked video");
+  assert.ok(!previewNoVideo.blockers.some((b) => b.code === "missing_video_id"));
+  assert.ok(previewNoVideo.warnings.some((w) => w.includes("No YouTube video linked")));
+  console.log("  ✓ preview ready without linked video");
+
   await updateShow(show.id, { youtubeVideoId: "testVideo123" });
   const stillBlocked = await preflightShowRun(show.id, "full");
   assert.equal(stillBlocked.ready, false);
   assert.ok(stillBlocked.blockers.some((b) => b.code === "youtube_write_missing"));
   console.log("  ✓ blocks without OAuth even with video ID");
 
-  process.env.YTX_YOUTUBE_API_KEY = process.env.YTX_YOUTUBE_API_KEY ?? "test-api-key";
   const previewPreflight = await preflightShowRun(show.id, "preview");
   assert.ok(!previewPreflight.blockers.some((b) => b.code === "youtube_write_missing"));
   assert.ok(

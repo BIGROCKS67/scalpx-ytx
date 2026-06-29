@@ -10,7 +10,7 @@ import { ContextHeader } from "@/components/shell/ContextHeader";
 import { Button } from "@/components/ui";
 import { ShowVideoCard } from "@/components/ytx/ShowVideoCard";
 import { sortShowsForDashboard } from "@/lib/dashboardInsights";
-import { filterActiveShows, filterArchivedShows } from "@/lib/showFilters";
+import { filterActiveShows, filterArchivedShows, groupShowsByArchiveDate } from "@/lib/showFilters";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
 export function ShowsView() {
@@ -87,7 +87,8 @@ export function ShowsView() {
   }
 
   const activeShows = sortShowsForDashboard(filterActiveShows(shows));
-  const archivedShows = sortShowsForDashboard(filterArchivedShows(shows));
+  const archiveGroups = groupShowsByArchiveDate(filterArchivedShows(shows));
+  const archivedCount = archiveGroups.reduce((n, g) => n + g.shows.length, 0);
 
   return (
     <WorkspaceShell
@@ -143,7 +144,7 @@ export function ShowsView() {
             onChange={(e) => setForm((f) => ({ ...f, guestName: e.target.value }))}
           />
           <Button className="w-full" disabled={creating} onClick={() => void createShow()}>
-            {creating ? "Creating…" : "Create show"}
+            {creating ? "Creating & preparing…" : "Create show"}
           </Button>
         </div>
       }
@@ -167,13 +168,13 @@ export function ShowsView() {
           <p className="text-dim text-sm mb-4 max-w-md mx-auto">
             Create a ShowRun in the panel for your next stream or VOD. Link a YouTube URL on the show board, then Run preview or Full E2E.
           </p>
-          {archivedShows.length > 0 ? (
+          {archivedCount > 0 ? (
             <button
               type="button"
               className="text-xs text-accent hover:underline"
               onClick={() => setShowArchive(true)}
             >
-              View {archivedShows.length} archived run{archivedShows.length === 1 ? "" : "s"}
+              View {archivedCount} archived run{archivedCount === 1 ? "" : "s"}
             </button>
           ) : null}
         </div>
@@ -189,23 +190,30 @@ export function ShowsView() {
         </div>
       )}
 
-      {!loading && archivedShows.length > 0 ? (
+      {!loading && archivedCount > 0 ? (
         <div className="mt-8">
           <button
             type="button"
             className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-dim hover:text-ink mb-3"
             onClick={() => setShowArchive((v) => !v)}
           >
-            {showArchive ? "Hide" : "Show"} archive · {archivedShows.length} completed
+            {showArchive ? "Hide" : "Show"} archive · {archivedCount} past & completed
           </button>
           {showArchive ? (
-            <div className="ytx-show-grid opacity-80">
-              {archivedShows.map((show) => (
-                <ShowVideoCard
-                  key={show.id}
-                  show={show}
-                  channel={channels.find((c) => c.id === show.channelId)}
-                />
+            <div className="space-y-6 opacity-90">
+              {archiveGroups.map((group) => (
+                <section key={group.key}>
+                  <h3 className="ytx-archive-date-label">{group.label}</h3>
+                  <div className="ytx-show-grid mt-3">
+                    {group.shows.map((show) => (
+                      <ShowVideoCard
+                        key={show.id}
+                        show={show}
+                        channel={channels.find((c) => c.id === show.channelId)}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : null}

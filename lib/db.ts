@@ -209,6 +209,9 @@ function migrateSchema(db: Database.Database) {
   addCol("ALTER TABLE show_runs ADD COLUMN liveChaptersJson TEXT DEFAULT '[]'");
   addCol("ALTER TABLE channels ADD COLUMN channelTrailerDraftJson TEXT DEFAULT NULL");
   addCol("ALTER TABLE channels ADD COLUMN avatarUrl TEXT DEFAULT NULL");
+  addCol("ALTER TABLE comment_replies ADD COLUMN likeCount INTEGER DEFAULT 0");
+  addCol("ALTER TABLE comment_replies ADD COLUMN replyCount INTEGER DEFAULT 0");
+  addCol("ALTER TABLE comment_replies ADD COLUMN commentSource TEXT DEFAULT 'unknown'");
 }
 
 export function getDb(): Database.Database {

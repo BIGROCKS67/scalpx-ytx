@@ -154,12 +154,17 @@ export type SeoPack = {
   thumbnailBrief: string;
 };
 
+export type CommentSource = "youtube" | "demo" | "unknown";
+
 export type CommentReply = {
   id: string;
   showRunId: string;
   authorHint: string;
   commentText: string;
   draftReply: string;
+  likeCount: number;
+  replyCount: number;
+  commentSource: CommentSource;
   status: "pending" | "approved" | "posted" | "skipped";
   createdAt: string;
   updatedAt: string;

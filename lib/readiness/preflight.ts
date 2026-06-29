@@ -1,5 +1,6 @@
 import { isActiveChannelSlug } from "@/lib/activeChannels";
 import { checkClipsReadiness } from "@/lib/clips/readiness";
+import { hasLinkedYoutubeVideo } from "@/lib/showMedia";
 import { getChannel, getSettings, getShow } from "@/lib/store";
 import { hostCapabilities, isServerlessDemoHost } from "@/lib/runtimeHost";
 import { oauthConfigured } from "@/lib/youtubeOAuth";
@@ -78,22 +79,34 @@ export async function preflightShowRun(
     });
   }
 
-  const youtubeVideoId = Boolean(show.youtubeVideoId?.trim());
+  const youtubeVideoId = hasLinkedYoutubeVideo(show);
   if (!youtubeVideoId) {
-    blockers.push({
-      code: "missing_video_id",
-      message: "Show is not linked to a YouTube video",
-      fix: "Paste a YouTube URL on the show before running end to end",
-    });
+    if (mode === "full") {
+      blockers.push({
+        code: "missing_video_id",
+        message: "Show is not linked to a YouTube video",
+        fix: "Paste a YouTube URL on the show board, then run Full E2E",
+      });
+    } else {
+      warnings.push(
+        "No YouTube video linked — preview runs SEO, cross-post drafts, and checklist now · bind a URL before Shorts, analytics, and Full E2E"
+      );
+    }
   }
 
   const youtubeRead = channel ? await youtubeApiReady(channel.id) : false;
   if (!youtubeRead) {
-    blockers.push({
-      code: "youtube_read_missing",
-      message: "YouTube read access is not configured",
-      fix: "Add YTX_YOUTUBE_API_KEY in Settings or connect OAuth",
-    });
+    if (mode === "full" || youtubeVideoId) {
+      blockers.push({
+        code: "youtube_read_missing",
+        message: "YouTube read access is not configured",
+        fix: "Add YTX_YOUTUBE_API_KEY in Settings or connect OAuth",
+      });
+    } else if (isPreviewMode(mode) || mode === "metadata_only") {
+      warnings.push(
+        "YouTube API key not set — preview drafts still run · add YTX_YOUTUBE_API_KEY for roster sync and analytics"
+      );
+    }
   }
 
   const youtubeWrite = channel ? await youtubeWriteReady(channel.id) : false;
@@ -105,20 +118,22 @@ export async function preflightShowRun(
     });
   }
 
-  const clips = await checkClipsReadiness();
   const skipClipsGate = isPreviewMode(mode);
-  if (mode === "full" && !clips.ready) {
-    for (const b of clips.blockers) {
-      blockers.push({
-        code: b.code,
-        message: b.message,
-        fix: b.fix,
-      });
-    }
-  }
-  if (isPreviewMode(mode) && !clips.ready) {
-    for (const b of clips.blockers) {
-      warnings.push(`${b.message} — Shorts export skipped in preview (${b.fix})`);
+  let clips: Awaited<ReturnType<typeof checkClipsReadiness>> = {
+    ready: true,
+    blockers: [],
+    warnings: [],
+  };
+  if (mode === "full") {
+    clips = await checkClipsReadiness();
+    if (!clips.ready) {
+      for (const b of clips.blockers) {
+        blockers.push({
+          code: b.code,
+          message: b.message,
+          fix: b.fix,
+        });
+      }
     }
   }
   if (mode === "metadata_only") {
@@ -128,6 +143,9 @@ export async function preflightShowRun(
     warnings.push(
       "Preview run — SEO, drafts, and checklist run locally · nothing is published to YouTube until channel OAuth is connected"
     );
+    if (!youtubeVideoId) {
+      warnings.push("Clips and live analytics steps skip until you link a YouTube URL");
+    }
     if (!youtubeWrite) {
       warnings.push("YouTube OAuth not connected — metadata and comments stay as local drafts");
     }

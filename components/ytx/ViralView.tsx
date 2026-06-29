@@ -54,7 +54,7 @@ export function ViralView() {
 
       <ContextHeader
         title="Viral & stream ready"
-        subtitle="What's hot on your uploads · channel rhythm · what to stream next"
+        subtitle="Trending uploads → stream ideas. Queue a live follow-up while momentum is still hot."
       />
 
       <TrendStreamSection trends={data?.trends} loading={loading} />

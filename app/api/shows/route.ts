@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { bootstrapShowDrafts } from "@/lib/bootstrapShowDrafts";
 import { createShow, ensureRosterData, listShows } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
       guestName: body.guestName,
       dealId: body.dealId,
     });
-    return NextResponse.json(result, { status: 201 });
+    const bootstrap = await bootstrapShowDrafts(result.show.id);
+    return NextResponse.json({ ...result, bootstrap: bootstrap.skipped ? "skipped" : bootstrap.ok ? "ok" : "partial" }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: "Failed to create show" }, { status: 500 });
   }

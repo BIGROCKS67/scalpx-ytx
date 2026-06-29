@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalyticsSnapshot,
   ChecklistItem,
@@ -17,18 +17,33 @@ import type {
 import { PHASE_LABELS, PHASE_ORDER, type ShowPhase } from "@/lib/types";
 import { fetchJson } from "@/lib/clientFetch";
 import ErrorBanner from "@/components/ErrorBanner";
-import { Badge, Button, SegmentedControl } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { progressForShow } from "@/lib/dashboardInsights";
 import { taskById } from "@/lib/checklistTasks";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
-import { ReadinessPanel } from "@/components/ytx/ReadinessPanel";
 import { ShowVideoHero } from "@/components/ytx/ShowVideoHero";
 import {
   LifecycleProgressBar,
   createEmptyRunProgress,
   type LifecycleRunProgress,
 } from "@/components/ytx/LifecycleProgressBar";
-import { runLifecycleStream } from "@/lib/lifecycleStreamClient";
+import { ShowNextStepCard } from "@/components/ytx/ShowNextStepCard";
+import { ShowDetailsFold } from "@/components/ytx/ShowDetailsFold";
+import { ShowStudioNav, ShowStudioPanel } from "@/components/ytx/studio/ShowStudioNav";
+import { ShowStudioDashboard } from "@/components/ytx/studio/ShowStudioDashboard";
+import { ShowStudioDetails } from "@/components/ytx/studio/ShowStudioDetails";
+import { ShowStudioChecks } from "@/components/ytx/studio/ShowStudioChecks";
+import {
+  ShowStudioVisibility,
+  visibilityToShowStatus,
+} from "@/components/ytx/studio/ShowStudioVisibility";
+import { ShowStudioCommunity } from "@/components/ytx/studio/ShowStudioCommunity";
+import { ShowStudioVideoElements } from "@/components/ytx/studio/ShowStudioVideoElements";
+import { computeShowNextStep } from "@/lib/showNextStep";
+import { showNeedsDraftBootstrap } from "@/lib/showDraftBootstrap";
+import { isReplayShowView } from "@/lib/showFilters";
+import { runModeLabel, type StudioTab } from "@/lib/studioLabels";
+import { ShowReplayView } from "@/components/ytx/replay/ShowReplayView";
 
 type PreflightPayload = {
   ready: boolean;
@@ -59,6 +74,10 @@ type ShowPayload = {
   analytics: AnalyticsSnapshot[];
   igCarousel: IgCarouselDraft | null;
   commentReplies: CommentReply[];
+  commentsFromYoutube?: boolean;
+  commentSyncError?: string;
+  analyticsFromYoutube?: boolean;
+  analyticsSyncError?: string;
   verification?: VerificationRow[];
 };
 
@@ -77,13 +96,12 @@ type LifecycleResultPayload = {
   checklist: { done: number; pending: number; autoDone: number; autoTotal: number };
 };
 
-type Tab = "checklist" | "pre_show" | "live" | "post_show";
+import { runLifecycleStream } from "@/lib/lifecycleStreamClient";
 
 type RunMode = "full" | "metadata_only" | "preview";
 
 export function ShowDetailView({ showId }: { showId: string }) {
   const [data, setData] = useState<ShowPayload | null>(null);
-  const [tab, setTab] = useState<Tab>("checklist");
   const [phase, setPhase] = useState<ShowPhase>("channel_setup");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +109,10 @@ export function ShowDetailView({ showId }: { showId: string }) {
   const [seoPack, setSeoPack] = useState<SeoPack | null>(null);
   const [sponsorBlock, setSponsorBlock] = useState<SponsorBlock | null>(null);
   const [commentItems, setCommentItems] = useState<CommentReply[]>([]);
+  const [commentsFromYoutube, setCommentsFromYoutube] = useState(false);
+  const [commentSyncError, setCommentSyncError] = useState<string | null>(null);
+  const [analyticsFromYoutube, setAnalyticsFromYoutube] = useState(false);
+  const [analyticsSyncError, setAnalyticsSyncError] = useState<string | null>(null);
   const [igCarousel, setIgCarousel] = useState<IgCarouselDraft | null>(null);
   const [endScreenMsg, setEndScreenMsg] = useState<string | null>(null);
   const [lifecycleMsg, setLifecycleMsg] = useState<string | null>(null);
@@ -98,13 +120,21 @@ export function ShowDetailView({ showId }: { showId: string }) {
   const [lifecycleProof, setLifecycleProof] = useState<LifecycleResultPayload["proof"] | null>(null);
   const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
   const [runMode, setRunMode] = useState<RunMode>("preview");
+  const [preflightLoading, setPreflightLoading] = useState(true);
   const [runProgress, setRunProgress] = useState<LifecycleRunProgress>(createEmptyRunProgress);
+  const [studioTab, setStudioTab] = useState<StudioTab>("dashboard");
+  const [autoBootstrapping, setAutoBootstrapping] = useState(false);
+  const autoBootstrapRef = useRef(false);
+  const replayDraftsRef = useRef(false);
+  const bindVideoRef = useRef<HTMLDivElement>(null);
 
   const loadPreflight = useCallback(async () => {
+    setPreflightLoading(true);
     const res = await fetchJson<PreflightPayload>(
       `/api/shows/${showId}/preflight?mode=${runMode}`
     );
     if (res.ok) setPreflight(res.data);
+    setPreflightLoading(false);
   }, [showId, runMode]);
 
   const load = useCallback(async () => {
@@ -117,6 +147,10 @@ export function ShowDetailView({ showId }: { showId: string }) {
     }
     setData(res.data);
     setCommentItems(res.data.commentReplies);
+    setCommentsFromYoutube(Boolean(res.data.commentsFromYoutube));
+    setCommentSyncError(res.data.commentSyncError ?? null);
+    setAnalyticsFromYoutube(Boolean(res.data.analyticsFromYoutube));
+    setAnalyticsSyncError(res.data.analyticsSyncError ?? null);
     setIgCarousel(res.data.igCarousel);
     if (res.data.show.youtubeVideoId) {
       setYoutubeUrlInput((prev) =>
@@ -132,8 +166,97 @@ export function ShowDetailView({ showId }: { showId: string }) {
   }, [load]);
 
   useEffect(() => {
+    autoBootstrapRef.current = false;
+    replayDraftsRef.current = false;
+  }, [showId]);
+
+  useEffect(() => {
+    if (!data?.show || replayDraftsRef.current || busy === "comments") return;
+    if (!isReplayShowView(data.show)) return;
+    const needsDrafts = data.commentReplies.some(
+      (c) => c.status === "pending" && !c.draftReply.trim()
+    );
+    if (!needsDrafts) return;
+
+    replayDraftsRef.current = true;
+    setBusy("comments");
+    void fetchJson<{ items: CommentReply[]; fromYoutube?: boolean; syncError?: string }>(
+      `/api/shows/${showId}/comments`,
+      { method: "POST", body: JSON.stringify({ syncYoutube: false, force: true }) }
+    )
+      .then((res) => {
+        if (res.ok) {
+          setCommentItems(res.data.items);
+          setCommentsFromYoutube(Boolean(res.data.fromYoutube));
+          setCommentSyncError(res.data.syncError ?? null);
+        }
+        void load();
+      })
+      .finally(() => setBusy(null));
+  }, [data?.show, data?.commentReplies, showId, busy]);
+
+  async function runCommentAction(opts: { syncYoutube: boolean; force: boolean }) {
+    setBusy("comments");
+    const res = await fetchJson<{
+      items: CommentReply[];
+      fromYoutube?: boolean;
+      syncError?: string;
+    }>(`/api/shows/${showId}/comments`, {
+      method: "POST",
+      body: JSON.stringify(opts),
+    });
+    setBusy(null);
+    if (res.ok) {
+      setCommentItems(res.data.items);
+      setCommentsFromYoutube(Boolean(res.data.fromYoutube));
+      setCommentSyncError(res.data.syncError ?? null);
+    } else {
+      setError(res.error);
+    }
+    void load();
+  }
+
+  async function pullCommentsFromYoutube() {
+    await runCommentAction({ syncYoutube: true, force: true });
+  }
+
+  async function regenerateCommentReplies() {
+    await runCommentAction({ syncYoutube: false, force: true });
+  }
+
+  async function syncAnalyticsFromYoutube() {
+    setBusy("analytics");
+    const res = await fetchJson<{ snapshots: AnalyticsSnapshot[]; fromYoutube?: boolean; error?: string }>(
+      `/api/shows/${showId}/analytics`,
+      { method: "POST" }
+    );
+    setBusy(null);
+    if (res.ok) {
+      setData((prev) =>
+        prev ? { ...prev, analytics: res.data.snapshots, analyticsFromYoutube: true } : prev
+      );
+      setAnalyticsFromYoutube(true);
+      setAnalyticsSyncError(null);
+    } else {
+      setAnalyticsSyncError(res.error);
+      setError(res.error);
+    }
+    void load();
+  }
+
+  useEffect(() => {
     void loadPreflight();
   }, [loadPreflight]);
+
+  useEffect(() => {
+    if (!data?.show || autoBootstrapRef.current || busy === "lifecycle") return;
+    if (isReplayShowView(data.show)) return;
+    if (!showNeedsDraftBootstrap(data.show)) return;
+
+    autoBootstrapRef.current = true;
+    setAutoBootstrapping(true);
+    void runEndToEnd("preview").finally(() => setAutoBootstrapping(false));
+  }, [data?.show, busy]);
 
   async function bindYoutubeVideo() {
     setBusy("bind-video");
@@ -149,30 +272,41 @@ export function ShowDetailView({ showId }: { showId: string }) {
     void load();
   }
 
-  async function runEndToEnd() {
+  async function runEndToEnd(modeOverride?: RunMode) {
+    const mode = modeOverride ?? runMode;
+    if (mode === "preview" && data?.show.status === "blocked") {
+      await fetchJson(`/api/shows/${showId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "scheduled" }),
+      });
+    }
+    setRunMode(mode);
     setBusy("lifecycle");
     setLifecycleMsg(null);
     setError(null);
     const initial = { ...createEmptyRunProgress(), running: true };
     setRunProgress(initial);
 
-    const res = await runLifecycleStream(showId, runMode, setRunProgress, initial);
+    const res = await runLifecycleStream(showId, mode, setRunProgress, initial);
     setBusy(null);
 
     if (!res.data) {
+      setRunProgress((p) => ({ ...p, running: false, runOk: false }));
       setError(!res.ok ? res.error : "Lifecycle run failed");
+      void loadPreflight();
       return;
     }
 
     if (!res.ok) {
+      setRunProgress((p) => ({ ...p, running: false, runOk: res.data?.ok ?? false }));
       const blockers = res.data.blockers;
       if (blockers?.length) {
-        setPreflight({ ready: false, blockers, warnings: [] });
         setError(blockers.map((b) => b.message).join(" · "));
       } else {
         setError(res.error);
       }
       setLifecycleProof(res.data.proof);
+      void loadPreflight();
       return;
     }
 
@@ -180,14 +314,37 @@ export function ShowDetailView({ showId }: { showId: string }) {
     const okSteps = res.data.steps.filter((s) => s.ok).length;
     setLifecycleMsg(
       res.data.ok
-        ? runMode === "preview"
-          ? `Preview complete · ${okSteps}/${res.data.steps.length} steps · drafts local · ${res.data.proof.clipsExportCount} clips · connect OAuth to publish`
+        ? mode === "preview"
+          ? `Preview complete · ${okSteps}/${res.data.steps.length} steps · drafts saved locally`
           : `Verified end-to-end · ${okSteps}/${res.data.steps.length} steps · YouTube write OK · ${res.data.proof.clipsExportCount} clips`
-        : runMode === "preview"
-          ? `Preview blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done · check proof panel`
-          : `Run blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done · check proof panel`
+        : mode === "preview"
+          ? `Preview blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done`
+          : `Run blocked · ${res.data.checklist.autoDone}/${res.data.checklist.autoTotal} auto tasks done`
     );
     void load();
+  }
+
+  async function clearBlockedStatus() {
+    await fetchJson(`/api/shows/${showId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "scheduled" }),
+    });
+    void load();
+  }
+
+  function scrollToBindVideo() {
+    setStudioTab("visibility");
+  }
+
+  function scrollToChecklist() {
+    setStudioTab("community");
+  }
+
+  function scrollToPromote() {
+    setStudioTab("dashboard");
+    requestAnimationFrame(() => {
+      document.getElementById("studio-promote")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   const phaseItems = useMemo(() => {
@@ -239,6 +396,18 @@ export function ShowDetailView({ showId }: { showId: string }) {
     void load();
   }
 
+  async function refreshComments() {
+    await runCommentAction({ syncYoutube: true, force: true });
+  }
+
+  async function patchComment(id: string, patch: { draftReply?: string; status?: CommentReply["status"] }) {
+    await fetchJson(`/api/shows/${showId}/comments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    void load();
+  }
+
   if (loading && !data) {
     return (
       <div className="track-workspace min-h-[60vh] flex items-center justify-center text-dim">
@@ -260,548 +429,149 @@ export function ShowDetailView({ showId }: { showId: string }) {
 
   const { show, channel, crossPosts, clipBatch, analytics } = data;
 
+  const previewReady = !preflightLoading && (preflight?.ready ?? false);
+  const heroStatus =
+    show.status === "blocked" && previewReady ? ("scheduled" as const) : show.status;
+  const showBlockedBanner =
+    show.status === "blocked" && runMode === "full" && !previewReady;
+
+  const nextStep = computeShowNextStep({
+    show,
+    progressPct: progress.pct,
+    qcPending: progress.qcPending,
+    preflightReady: previewReady,
+    runMode,
+    lifecycleRunning: busy === "lifecycle",
+  });
+
+  const replayMode = isReplayShowView(show);
+  const pendingCommentReplies = commentItems.filter((c) => c.status === "pending").length;
+
+  if (replayMode) {
+    return (
+      <WorkspaceShell
+        title={show.title.slice(0, 20)}
+        panel={
+          <div className="track-rail-block">
+            <p className="track-rail-label">Comments</p>
+            <p className="text-2xl font-bold font-mono text-ink tabular-nums">{commentItems.length}</p>
+            <p className="text-xs text-dim mt-1">
+              {pendingCommentReplies} repl{pendingCommentReplies === 1 ? "y" : "ies"} to review
+            </p>
+          </div>
+        }
+      >
+        {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
+        <div className="ytx-show-page-top mb-4">
+          <Link href="/shows" className="text-xs text-dim hover:text-accent">
+            ← Shows
+          </Link>
+        </div>
+        <ShowReplayView
+          show={show}
+          channel={channel}
+          analytics={analytics}
+          analyticsFromYoutube={analyticsFromYoutube}
+          analyticsSyncError={analyticsSyncError}
+          analyticsBusy={busy === "analytics"}
+          onSyncAnalytics={() => void syncAnalyticsFromYoutube()}
+          commentItems={commentItems}
+          commentsFromYoutube={commentsFromYoutube}
+          commentSyncError={commentSyncError}
+          commentsBusy={busy === "comments"}
+          onPullFromYoutube={() => void pullCommentsFromYoutube()}
+          onRegenerateReplies={() => void regenerateCommentReplies()}
+          onUpdateReply={(id, reply) => {
+            setCommentItems((items) => items.map((x) => (x.id === id ? { ...x, draftReply: reply } : x)));
+            void fetchJson(`/api/shows/${showId}/comments/${id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ draftReply: reply }),
+            });
+          }}
+          onApproveComment={(id) => void patchComment(id, { status: "approved" })}
+          onSkipComment={(id) => void patchComment(id, { status: "skipped" })}
+        />
+      </WorkspaceShell>
+    );
+  }
+
   return (
     <WorkspaceShell
       title={show.title.slice(0, 20)}
       panel={
-        <>
-          <div className="track-rail-block">
-            <p className="track-rail-label">Progress</p>
-            <p className="text-2xl font-bold font-mono text-ink tabular-nums">{progress.pct}%</p>
-            <p className="text-xs text-dim">
-              {progress.done}/{progress.total} applicable
-              {progress.qcPending ? ` · ${progress.qcPending} QC` : ""}
-            </p>
-            <div className="ytx-progress-track mt-3">
-              <div className="ytx-progress-fill" style={{ width: `${progress.pct}%` }} />
-            </div>
+        <div className="track-rail-block">
+          <p className="track-rail-label">Progress</p>
+          <p className="text-2xl font-bold font-mono text-ink tabular-nums">{progress.pct}%</p>
+          <p className="text-xs text-dim mt-1">
+            {progress.done}/{progress.total} tasks
+            {progress.qcPending ? ` · ${progress.qcPending} to review` : ""}
+          </p>
+          <div className="ytx-progress-track mt-3">
+            <div className="ytx-progress-fill" style={{ width: `${progress.pct}%` }} />
           </div>
-          <div className="track-rail-block">
-            <p className="track-rail-label">Phase</p>
-            <div className="flex flex-col gap-1">
-              {PHASE_ORDER.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => {
-                    setPhase(p);
-                    setTab("checklist");
-                  }}
-                  className={`track-rail-pill text-left w-full ${phase === p ? "track-rail-pill-on" : ""}`}
-                >
-                  {PHASE_LABELS[p]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="track-rail-block">
-            <p className="track-rail-label">Status</p>
-            <SegmentedControl
-              value={show.status}
-              options={[
-                { value: "draft", label: "Draft" },
-                { value: "scheduled", label: "Sched" },
-                { value: "live", label: "Live" },
-                { value: "blocked", label: "Blocked" },
-                { value: "preview", label: "Preview" },
-                { value: "completed", label: "Done" },
-              ]}
-              onChange={(v) => void setShowStatus(v as ShowRun["status"])}
-              className="w-full flex flex-wrap"
-            />
-          </div>
-        </>
+        </div>
       }
     >
       {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
 
-      <Link href="/shows" className="text-xs text-dim hover:text-accent mb-3 inline-block">
-        ← Shows
-      </Link>
-
-      <ShowVideoHero
-        show={show}
-        channel={channel}
-        progressPct={progress.pct}
-        actions={
-          <>
-            <select
-              className="ytx-mobile-full ytx-select"
-              value={runMode}
-              onChange={(e) => setRunMode(e.target.value as RunMode)}
-            >
-              <option value="preview">Preview run (no OAuth)</option>
-              <option value="full">Full E2E (OAuth)</option>
-              <option value="metadata_only">Metadata only</option>
-            </select>
-            <Button
-              className="ytx-mobile-full"
-              size="sm"
-              disabled={busy === "lifecycle" || preflight?.ready === false}
-              onClick={() => void runEndToEnd()}
-            >
-              {busy === "lifecycle" ? "Running…" : runMode === "preview" ? "Run preview" : "Run end to end"}
-            </Button>
-          </>
-        }
-      />
-
-      <ReadinessPanel
-        blockers={preflight?.blockers ?? []}
-        warnings={preflight?.warnings ?? []}
-        ready={preflight?.ready ?? false}
-        mode={runMode}
-        host={preflight?.host}
-        proof={lifecycleProof ?? undefined}
-        verification={data.verification}
-      />
-
-      <LifecycleProgressBar
-        progress={runProgress}
-        modeLabel={runMode === "preview" ? "Preview run" : runMode === "full" ? "Full E2E" : "Metadata run"}
-      />
-
-      <div className="track-panel mb-4 ytx-bind-video">
-        <label className="flex-1 text-sm block">
-          <span className="text-dim text-xs block mb-1">YouTube video (required for E2E)</span>
-          <input
-            className="ytx-input w-full"
-            placeholder="https://www.youtube.com/watch?v=…"
-            value={youtubeUrlInput}
-            onChange={(e) => setYoutubeUrlInput(e.target.value)}
-          />
-        </label>
-        <Button size="sm" variant="secondary" className="ytx-mobile-full shrink-0" disabled={busy === "bind-video"} onClick={() => void bindYoutubeVideo()}>
-          {busy === "bind-video" ? "Saving…" : "Link video"}
-        </Button>
+      <div className="ytx-show-page-top mb-4">
+        <Link href="/shows" className="text-xs text-dim hover:text-accent">
+          ← Shows
+        </Link>
       </div>
 
-      {preflight?.host?.serverless ? (
-        <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-100">
-          Demo host — Preview run works here (SEO + drafts). Shorts MP4 export runs on local{" "}
-          <span className="font-mono">:3001</span> or via Scout when wired. Data resets on cold start.
+      {autoBootstrapping ? (
+        <div className="ytx-show-status-banner ytx-show-status-banner-info mb-4">
+          Preparing title, description, tags, and social drafts…
         </div>
       ) : null}
-
-      {show.status === "preview" ? (
-        <div className="mb-4 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
-          Preview run complete — SEO, clips, and drafts are saved locally. Connect channel OAuth and use Full E2E to publish to YouTube.
+      {!autoBootstrapping && showBlockedBanner ? (
+        <div className="ytx-show-status-banner ytx-show-status-banner-warn mb-4">
+          Publish blocked — open <button type="button" className="text-accent hover:underline" onClick={() => setStudioTab("checks")}>Checks</button> to fix.
         </div>
       ) : null}
-
-      {show.status === "blocked" ? (
-        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-          Show blocked — last end-to-end run did not pass verification. Fix blockers and run again.
-        </div>
-      ) : null}
-
-      {lifecycleMsg ? <p className="text-xs text-dim font-mono mb-4">{lifecycleMsg}</p> : null}
-
-      {show.status === "live" ? (
-        <div className="tdesk-header mb-4">
+      {!autoBootstrapping && show.status === "live" ? (
+        <div className="ytx-show-status-banner ytx-show-status-banner-live mb-4">
           <span className="tdesk-live-dot" />
-          <span className="text-sm font-semibold text-ink">Live</span>
-          <span className="text-xs text-dim ml-auto">{channel?.oauthConnected ? "OAuth connected" : "OAuth offline"}</span>
+          Live now · {channel?.oauthConnected ? "YouTube connected" : "Connect on Roster"}
         </div>
       ) : null}
 
-      <div className="ytx-phase-stepper mb-4">
-        {PHASE_ORDER.map((p) => {
-          const items = data.checklist.filter((i) => i.phase === p && i.status !== "skipped");
-          const done = items.filter((i) => i.status === "done").length;
-          return (
-            <button
-              key={p}
-              type="button"
-              onClick={() => {
-                setPhase(p);
-                setTab("checklist");
-              }}
-              className={`ytx-phase-step ${phase === p ? "ytx-phase-step-on" : ""}`}
-            >
-              <span className="text-xs font-medium">{PHASE_LABELS[p]}</span>
-              <span className="text-[10px] font-mono text-dim">
-                {done}/{items.length}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <ShowVideoHero show={show} channel={channel} statusOverride={heroStatus} compact />
 
-      <div className="mb-6 ytx-tabs-scroll">
-        <SegmentedControl
-          value={tab}
-          options={[
-            { value: "checklist", label: "Checklist" },
-            { value: "pre_show", label: "Pre-show" },
-            { value: "live", label: "Live" },
-            { value: "post_show", label: "Post-show" },
-          ]}
-          onChange={(v) => setTab(v as Tab)}
-          className="ytx-segmented-mobile"
-        />
-      </div>
+      <ShowStudioNav
+        active={studioTab}
+        onChange={setStudioTab}
+        badges={{
+          community: progress.qcPending,
+          checks: preflight?.blockers.length,
+        }}
+      />
 
-      {tab === "checklist" && (
-        <section className="track-panel">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-dim mb-4">
-            {PHASE_LABELS[phase]}
-          </h2>
-          <ul className="space-y-2">
-            {phaseItems.map((item) => {
-              const def = taskById(item.taskId);
-              const skipped = item.status === "skipped";
-              const qcGate = def?.needsQc && item.status !== "done";
-              return (
-                <li
-                  key={item.id}
-                  className={`ytx-task-row ${qcGate ? "ytx-task-row-qc" : ""} ${skipped ? "opacity-50" : ""}`}
-                >
-                  {skipped ? (
-                    <span className="w-5 h-5 shrink-0 text-dim text-xs">⊘</span>
-                  ) : def?.needsQc ? (
-                    <span className="w-5 h-5 shrink-0 rounded-full border-2 border-amber-500/60" title="QC required" />
-                  ) : def?.mode === "auto" ? (
-                    <span
-                      className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
-                        item.status === "done"
-                          ? "bg-accent border-accent text-black"
-                          : "border-white/20"
-                      }`}
-                      title="Auto tasks complete from verified lifecycle actions only"
-                    >
-                      {item.status === "done" ? "✓" : ""}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void toggleTask(
-                          item.taskId,
-                          item.status === "done" ? "pending" : "done"
-                        )
-                      }
-                      className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
-                        item.status === "done"
-                          ? "bg-accent border-accent text-black"
-                          : "border-white/20"
-                      }`}
-                    >
-                      {item.status === "done" ? "✓" : ""}
-                    </button>
-                  )}
-                  <div className="flex-1 min-w-[200px]">
-                    <p className={`text-sm font-medium text-ink ${skipped ? "line-through" : ""}`}>
-                      {def?.label ?? item.taskId}
-                    </p>
-                    <p className="text-[10px] font-mono text-dim">{item.taskId}</p>
-                  </div>
-                  <span className="text-[10px] text-dim">
-                    {skipped ? "skipped" : def?.needsQc ? "auto · QC" : item.mode}
-                  </span>
-                  {def?.needsQc && !skipped ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setTab(def?.phase === "live" ? "live" : "post_show")}
-                    >
-                      Review
-                    </Button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {tab === "pre_show" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ActionPanel
-            title="Channel setup"
-            hint="Tasks 3.1 · 3.2 · auto description + tags"
-            busy={busy === "chsetup"}
-            onRun={() => void runAction("chsetup", `/api/shows/${showId}/channel-setup`)}
-          >
-            <p className="text-dim text-sm">
-              Generate channel description + tags from roster template · marks channel setup tasks
-            </p>
-          </ActionPanel>
-
-          <ActionPanel
-            title="SEO pack"
-            hint="Tasks 1.1 · 1.2 · 1.3 · 3.4"
-            busy={busy === "seo"}
-            onRun={() => void runAction("seo", `/api/shows/${showId}/seo-pack`)}
-          >
-            {seoPack || show.seoTitle ? (
-              <div className="space-y-2 text-[11px] font-mono text-dim">
-                <p className="text-accent font-bold">{show.seoTitle ?? seoPack?.titles[0]}</p>
-                <pre className="whitespace-pre-wrap bg-black/30 p-3 rounded-lg max-h-40 overflow-y-auto">
-                  {show.seoDescription ?? seoPack?.description}
-                </pre>
-              </div>
-            ) : (
-              <p className="text-dim text-sm">Generate title, description, tags, thumbnail brief</p>
-            )}
-          </ActionPanel>
-
-          <ActionPanel
-            title="Sponsor block"
-            hint="Task 2.1 · Scout TrackingLinks"
-            busy={busy === "sponsor"}
-            onRun={() => void runAction("sponsor", `/api/shows/${showId}/sponsor-block`)}
-          >
-            {sponsorBlock ? (
-              <pre className="text-[11px] whitespace-pre-wrap text-dim bg-black/30 p-3 rounded-lg">
-                {sponsorBlock.copy}
-              </pre>
-            ) : (
-              <p className="text-dim text-sm">Pull sponsor URLs from FlowX Scout by dealId</p>
-            )}
-          </ActionPanel>
-
-          <ActionPanel
-            title="Cross-post queue"
-            hint="Tasks 1.7–3.6 · 6 platforms"
-            busy={busy === "cross"}
-            onRun={() => void runAction("cross", `/api/shows/${showId}/cross-post`)}
-            className="lg:col-span-2"
-          >
-            {crossPosts.length ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {crossPosts.map((cp) => (
-                  <div key={cp.id} className="p-3 rounded-lg bg-black/25 border border-white/5">
-                    <p className="text-xs font-bold text-accent uppercase">{cp.platform}</p>
-                    <p className="text-[11px] text-dim mt-1 line-clamp-3">{cp.draftBody}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-dim text-sm">Generate pre-show drafts (T-60min schedule)</p>
-            )}
-          </ActionPanel>
-        </div>
-      )}
-
-      {tab === "live" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {show.pipeline !== "live" ? (
-            <section className="track-panel lg:col-span-2">
-              <p className="text-sm text-dim">
-                Live-only tasks (1.11-1.14, 2.3) are skipped on the pre-recorded pipeline.
-              </p>
-            </section>
-          ) : null}
-          <ActionPanel
-            title="Live analytics"
-            hint="Tasks 1.11 · 3.7"
-            busy={busy === "analytics"}
-            onRun={() => void runAction("analytics", `/api/shows/${showId}/analytics`)}
-          >
-            {analytics.length ? (
-              <ul className="space-y-2">
-                {analytics.slice(0, 5).map((a) => (
-                  <li key={a.id} className="flex justify-between text-sm">
-                    <span className="text-dim">{a.snapshotType.replace("_", " ")}</span>
-                    <span className="font-mono text-accent">
-                      {a.concurrentViewers ?? "-"} viewers
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-dim text-sm">Capture waiting room + peak concurrentViewers</p>
-            )}
-          </ActionPanel>
-
-          <section className="track-panel">
-            <h3 className="text-sm font-bold text-ink mb-2">Auto live ops</h3>
-            <p className="text-[11px] text-dim mb-3">Tasks 1.12 · 1.13 - AI generates · no manual paste</p>
-            <div className="flex flex-wrap gap-2 mb-4">
-              <Button
-                size="sm"
-                disabled={busy === "chapters" || show.pipeline !== "live"}
-                onClick={() => void runAction("chapters", `/api/shows/${showId}/live/chapters`)}
-              >
-                Auto chapters
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busy === "livelinks" || show.pipeline !== "live"}
-                onClick={() => void runAction("livelinks", `/api/shows/${showId}/live/links`)}
-              >
-                Auto update links
-              </Button>
-            </div>
-            {show.liveChapters.length > 0 ? (
-              <pre className="text-[11px] bg-black/30 p-2 rounded-lg text-accent font-mono whitespace-pre-wrap">
-                {show.liveChapters
-                  .map((c) => {
-                    const m = Math.floor(c.atSec / 60);
-                    const s = String(Math.floor(c.atSec % 60)).padStart(2, "0");
-                    return `${m}:${s} ${c.label}`;
-                  })
-                  .join("\n")}
-              </pre>
-            ) : (
-              <p className="text-dim text-sm">Chapters auto-generated from moments or default milestones</p>
-            )}
-            <div className="mt-4">
-              <p className="text-dim text-[11px] uppercase mb-1">Description patch log</p>
-              {show.descriptionPatchLog.length > 0 ? (
-                <ul className="text-[11px] text-dim space-y-1">
-                  {show.descriptionPatchLog.slice(-3).map((p, i) => (
-                    <li key={i}>
-                      {p.note} · {new Date(p.at).toLocaleTimeString()}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-dim text-sm">Live link updates logged automatically</p>
-              )}
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-4"
-              onClick={() => void setShowStatus("live")}
-            >
-              Mark live
-            </Button>
-          </section>
-        </div>
-      )}
-
-      {tab === "post_show" && (
-        <div className="grid gap-4">
-          <ActionPanel
-            title="Clips pipeline"
-            hint="Tasks 1.23 · 1.24 · Shorts export"
-            busy={busy === "clips"}
-            onRun={() =>
-              void runAction(
-                "clips",
-                `/api/shows/${showId}/clips`,
-                "POST"
-              )
-            }
-          >
-            {clipBatch ? (
-              <div className="space-y-2">
-                <Badge tone={clipBatch.status === "done" ? "good" : "warn"}>{clipBatch.status}</Badge>
-                <p className="text-sm text-dim">{clipBatch.message}</p>
-                {clipBatch.exportUrls.length > 0 && (
-                  <ul className="text-[11px] font-mono text-accent space-y-1">
-                    {clipBatch.exportUrls.map((u) => (
-                      <li key={u} className="truncate">
-                        {u}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : (
-              <p className="text-dim text-sm">
-                Local Clips pipeline (yt-dlp · Whisper · ffmpeg) - Scout fallback if configured
-              </p>
-            )}
-          </ActionPanel>
-
-          <ActionPanel
-            title="Post-show SEO + EndScreenDB"
-            hint="Tasks 1.16–1.21 · transcript SEO · end cards"
-            busy={busy === "postshow"}
-            onRun={() => void runAction("postshow", `/api/shows/${showId}/post-show`)}
-          >
-            {endScreenMsg ? (
-              <p className="text-sm text-dim">{endScreenMsg}</p>
-            ) : (
-              <p className="text-dim text-sm">Tags cleanup · chapters · end-screen graph edge</p>
-            )}
-          </ActionPanel>
-
-          <ActionPanel
-            title="Comment reply queue"
-            hint="Task 1.22 · auto + QC"
-            busy={busy === "comments"}
-            onRun={async () => {
-              setBusy("comments");
-              const res = await fetchJson<{ items: CommentReply[]; abReminderAt?: string }>(
-                `/api/shows/${showId}/comments`,
-                { method: "POST" }
-              );
-              setBusy(null);
-              if (res.ok) {
-                setCommentItems(res.data.items);
-                setEndScreenMsg(`A/B test reminder · +48h · ${res.data.abReminderAt ?? "scheduled"}`);
-              }
-              void load();
-            }}
-          >
-            {commentItems.length ? (
-              <ul className="space-y-3">
-                {commentItems.map((c) => (
-                  <li key={c.id} className="p-3 rounded bg-black/25 border border-white/5">
-                    <p className="text-[11px] text-accent">{c.authorHint}</p>
-                    <p className="text-xs text-dim">{c.commentText}</p>
-                    <textarea
-                      className="w-full mt-2 bg-black/30 border border-white/10 rounded px-2 py-1 text-[11px] text-ink min-h-[48px]"
-                      value={c.draftReply}
-                      onChange={async (e) => {
-                        const reply = e.target.value;
-                        setCommentItems((items) =>
-                          items.map((x) => (x.id === c.id ? { ...x, draftReply: reply } : x))
-                        );
-                        await fetchJson(`/api/shows/${showId}/comments/${c.id}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ draftReply: reply }),
-                        });
-                      }}
-                    />
-                    <div className="flex gap-2 mt-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          await fetchJson(`/api/shows/${showId}/comments/${c.id}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({ status: "approved" }),
-                          });
-                          void load();
-                        }}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          await fetchJson(`/api/shows/${showId}/comments/${c.id}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({ status: "skipped" }),
-                          });
-                          void load();
-                        }}
-                      >
-                        Reject
-                      </Button>
-                      <Badge tone={c.status === "approved" ? "good" : "neutral"}>{c.status}</Badge>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-dim text-sm">AI draft replies · approve or edit before posting</p>
-            )}
-          </ActionPanel>
-
-          <ActionPanel
-            title="IG carousel"
-            hint="Task 2.4 · auto + QC"
-            busy={busy === "igcarousel"}
-            onRun={async () => {
+      <ShowStudioPanel>
+      {studioTab === "dashboard" ? (
+          <ShowStudioDashboard
+            show={show}
+            channel={channel}
+            nextStep={nextStep}
+            lifecycleMsg={lifecycleMsg}
+            runProgress={runProgress}
+            runModeLabel={runModeLabel(runMode)}
+            showBlocked={show.status === "blocked"}
+            autoBootstrapping={autoBootstrapping}
+            crossPosts={crossPosts}
+            commentItems={commentItems}
+            igCarousel={igCarousel}
+            onClearBlocked={() => void clearBlockedStatus()}
+            onRunPreview={() => void runEndToEnd("preview")}
+            onRunFull={() => void runEndToEnd("full")}
+            onLinkVideo={scrollToBindVideo}
+            onReviewQc={scrollToChecklist}
+            onOpenTab={setStudioTab}
+            onScrollToPromote={scrollToPromote}
+            promoteBusy={busy}
+            onGenerateCrossPosts={() => void runAction("cross", `/api/shows/${showId}/cross-post`)}
+            onGenerateIgCarousel={async () => {
               setBusy("igcarousel");
               const res = await fetchJson<{ carousel: IgCarouselDraft }>(
                 `/api/shows/${showId}/ig-carousel`,
@@ -811,104 +581,202 @@ export function ShowDetailView({ showId }: { showId: string }) {
               if (res.ok) setIgCarousel(res.data.carousel);
               void load();
             }}
+            onApproveIgCarousel={async () => {
+              await fetchJson(`/api/shows/${showId}/ig-carousel`, {
+                method: "PATCH",
+                body: JSON.stringify({ action: "approve" }),
+              });
+              void load();
+            }}
+            onRejectIgCarousel={async () => {
+              await fetchJson(`/api/shows/${showId}/ig-carousel`, {
+                method: "PATCH",
+                body: JSON.stringify({ action: "reject" }),
+              });
+              void load();
+            }}
+          />
+      ) : null}
+
+      {studioTab === "details" ? (
+        <ShowStudioDetails
+          show={show}
+          seoPack={seoPack}
+          busy={busy === "seo"}
+          onGenerateSeo={() => void runAction("seo", `/api/shows/${showId}/seo-pack`)}
+        />
+      ) : null}
+
+      {studioTab === "visibility" ? (
+        <div ref={bindVideoRef}>
+          <ShowStudioVisibility
+            show={show}
+            youtubeUrlInput={youtubeUrlInput}
+            onYoutubeUrlChange={setYoutubeUrlInput}
+            onSaveYoutubeUrl={() => void bindYoutubeVideo()}
+            onVisibilityChange={(v) => void setShowStatus(visibilityToShowStatus(v, show.status))}
+            onPublish={() => void runEndToEnd()}
+            bindBusy={busy === "bind-video"}
+            publishBusy={busy === "lifecycle"}
+            publishDisabled={runMode === "full" && !preflight?.ready}
+            runMode={runMode}
+            onRunModeChange={setRunMode}
+            analytics={analytics}
+            liveBusy={busy}
+            onMarkLive={() => void setShowStatus("live")}
+            onMarkCompleted={() => void setShowStatus("completed")}
+            onCaptureAnalytics={() => void runAction("analytics", `/api/shows/${showId}/analytics`)}
+            onUpdateLiveLinks={() => void runAction("livelinks", `/api/shows/${showId}/live/links`)}
+          />
+        </div>
+      ) : null}
+
+      {studioTab === "checks" ? (
+        <ShowStudioChecks
+          preflight={preflight}
+          preflightLoading={preflightLoading}
+          runMode={runMode}
+          onRunModeChange={setRunMode}
+          onRunAgain={() => void runEndToEnd()}
+          runBusy={busy === "lifecycle"}
+          lifecycleProof={lifecycleProof ?? undefined}
+          verification={data.verification}
+        >
+          <ShowDetailsFold
+            id="show-checklist"
+            title="All tasks (advanced)"
+            summary={`${progress.done}/${progress.total} done`}
           >
-            {igCarousel ? (
-              <div className="space-y-3">
-                {igCarousel.slides.map((slide, i) => (
-                  <pre
-                    key={i}
-                    className="text-[11px] whitespace-pre-wrap text-dim bg-black/30 p-2 rounded-lg"
-                  >
-                    {slide}
-                  </pre>
-                ))}
-                <p className="text-xs text-ink">{igCarousel.caption}</p>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      await fetchJson(`/api/shows/${showId}/ig-carousel`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ action: "approve" }),
-                      });
-                      void load();
-                    }}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={async () => {
-                      await fetchJson(`/api/shows/${showId}/ig-carousel`, {
-                        method: "PATCH",
-                        body: JSON.stringify({ action: "reject" }),
-                      });
-                      void load();
-                    }}
-                  >
-                    Reject
-                  </Button>
-                  <Badge tone={igCarousel.status === "approved" ? "good" : "warn"}>
-                    {igCarousel.status}
-                  </Badge>
-                </div>
+            <section className="track-panel !p-0 !bg-transparent !border-0 !shadow-none">
+              <div className="flex flex-wrap gap-1 mb-4">
+                {PHASE_ORDER.map((p) => {
+                  const items = data.checklist.filter((i) => i.phase === p && i.status !== "skipped");
+                  const done = items.filter((i) => i.status === "done").length;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPhase(p)}
+                      className={`track-rail-pill text-xs ${phase === p ? "track-rail-pill-on" : ""}`}
+                    >
+                      {PHASE_LABELS[p]} · {done}/{items.length}
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <p className="text-dim text-sm">AI carousel slides + caption · human QC before publish</p>
-            )}
-          </ActionPanel>
-
-          {channel?.channelTrailerDraft ? (
-            <section className="track-panel">
-              <h3 className="font-bold text-ink mb-2">Channel trailer (task 1.5)</h3>
-              <p className="text-[10px] text-dim uppercase mb-2">Auto + QC on roster</p>
-              <pre className="text-[11px] whitespace-pre-wrap text-dim bg-black/30 p-3 rounded-lg max-h-40 overflow-y-auto">
-                {channel.channelTrailerDraft.script}
-              </pre>
-              <Badge tone={channel.channelTrailerDraft.status === "approved" ? "good" : "warn"} className="mt-2">
-                {channel.channelTrailerDraft.status}
-              </Badge>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-dim mb-4">
+                {PHASE_LABELS[phase]}
+              </h2>
+              <ul className="space-y-2">
+                {phaseItems.map((item) => {
+                  const def = taskById(item.taskId);
+                  const skipped = item.status === "skipped";
+                  const qcGate = def?.needsQc && item.status !== "done";
+                  return (
+                    <li
+                      key={item.id}
+                      className={`ytx-task-row ${qcGate ? "ytx-task-row-qc" : ""} ${skipped ? "opacity-50" : ""}`}
+                    >
+                      {skipped ? (
+                        <span className="w-5 h-5 shrink-0 text-dim text-xs">⊘</span>
+                      ) : def?.needsQc ? (
+                        <span
+                          className="w-5 h-5 shrink-0 rounded-full border-2 border-amber-500/60"
+                          title="Needs review"
+                        />
+                      ) : def?.mode === "auto" ? (
+                        <span
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
+                            item.status === "done"
+                              ? "bg-accent border-accent text-black"
+                              : "border-white/20"
+                          }`}
+                        >
+                          {item.status === "done" ? "✓" : ""}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void toggleTask(item.taskId, item.status === "done" ? "pending" : "done")
+                          }
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
+                            item.status === "done"
+                              ? "bg-accent border-accent text-black"
+                              : "border-white/20"
+                          }`}
+                        >
+                          {item.status === "done" ? "✓" : ""}
+                        </button>
+                      )}
+                      <div className="flex-1 min-w-[200px]">
+                        <p className={`text-sm font-medium text-ink ${skipped ? "line-through" : ""}`}>
+                          {def?.label ?? item.taskId}
+                        </p>
+                      </div>
+                      {def?.needsQc && !skipped ? (
+                        <Button size="sm" variant="secondary" onClick={() => setStudioTab("community")}>
+                          Review
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
             </section>
-          ) : null}
+          </ShowDetailsFold>
+        </ShowStudioChecks>
+      ) : null}
 
-          <Button variant="secondary" size="sm" onClick={() => void setShowStatus("completed")}>
-            Mark completed
-          </Button>
-        </div>
-      )}
+      {studioTab === "community" ? (
+        <ShowStudioCommunity
+          items={commentItems}
+          busy={busy === "comments"}
+          onGenerate={async () => {
+            setBusy("comments");
+            const res = await fetchJson<{ items: CommentReply[] }>(`/api/shows/${showId}/comments`, {
+              method: "POST",
+            });
+            setBusy(null);
+            if (res.ok) setCommentItems(res.data.items);
+            void load();
+          }}
+          onUpdateReply={(id, reply) => {
+            setCommentItems((items) => items.map((x) => (x.id === id ? { ...x, draftReply: reply } : x)));
+            void fetchJson(`/api/shows/${showId}/comments/${id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ draftReply: reply }),
+            });
+          }}
+          onApprove={(id) => {
+            void fetchJson(`/api/shows/${showId}/comments/${id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ status: "approved" }),
+            }).then(() => void load());
+          }}
+          onSkip={(id) => {
+            void fetchJson(`/api/shows/${showId}/comments/${id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ status: "skipped" }),
+            }).then(() => void load());
+          }}
+        />
+      ) : null}
+
+      {studioTab === "video-elements" ? (
+        <ShowStudioVideoElements
+          show={show}
+          sponsorBlock={sponsorBlock}
+          clipBatch={clipBatch}
+          endScreenMsg={endScreenMsg}
+          busy={busy}
+          onGenerateChapters={() => void runAction("chapters", `/api/shows/${showId}/live/chapters`)}
+          onGenerateSponsor={() => void runAction("sponsor", `/api/shows/${showId}/sponsor-block`)}
+          onRunClips={() => void runAction("clips", `/api/shows/${showId}/clips`, "POST")}
+          onRunEndScreen={() => void runAction("postshow", `/api/shows/${showId}/post-show`)}
+        />
+      ) : null}
+      </ShowStudioPanel>
     </WorkspaceShell>
-  );
-}
-
-function ActionPanel({
-  title,
-  hint,
-  busy,
-  onRun,
-  children,
-  className = "",
-}: {
-  title: string;
-  hint: string;
-  busy: boolean;
-  onRun: () => void;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`track-panel ${className}`}>
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <h3 className="font-bold text-ink">{title}</h3>
-          <p className="text-[10px] text-dim uppercase tracking-wider mt-0.5">{hint}</p>
-        </div>
-        <Button size="sm" disabled={busy} onClick={onRun}>
-          {busy ? "Running…" : "Run"}
-        </Button>
-      </div>
-      {children}
-    </section>
   );
 }

@@ -131,6 +131,100 @@ async function main() {
   const allChecklist = await listChecklist(show.id);
   ok("all checklist phases represented", PHASE_ORDER.every((p) => allChecklist.some((i) => i.phase === p)));
 
+  const banterCh = channels.find((c) => c.slug === "banter")!;
+  const { buildTrendFollowUpTitle, titlesTooSimilar } = await import("@/lib/insights/trendStream");
+  const { channelContentDna } = await import("@/lib/insights/channelDna");
+  console.log("\ntrend follow-up titles:");
+  const propViral = "BITCOIN LIVE TRADING: $1K to $100K Prop Firm Challenge | EP 1";
+  const propStream = buildTrendFollowUpTitle(
+    chento,
+    "stream",
+    propViral,
+    ["prop firm", "live trading", "bitcoin"],
+    channelContentDna(chento)
+  );
+  ok("prop firm stream title is not a rerun", !titlesTooSimilar(propStream, propViral));
+  ok(
+    "prop firm stream title is a follow-up angle",
+    /ep 2|check-in|continuation|update|not a replay/i.test(propStream)
+  );
+  const saylorViral = "Michael Saylor Did It & Bitcoin's about to Pump! (Here's Why)";
+  const saylorStream = buildTrendFollowUpTitle(
+    banterCh,
+    "banter",
+    saylorViral,
+    ["bitcoin"],
+    channelContentDna(banterCh)
+  );
+  ok("saylor stream title is not a rerun", !titlesTooSimilar(saylorStream, saylorViral));
+
+  const { showNeedsDraftBootstrap, seedInitialShowMetadata } = await import("@/lib/bootstrapShowDrafts");
+  const seeded = seedInitialShowMetadata("Bitcoin Live Test", chento);
+  ok("create seeds seo title", Boolean(seeded.seoTitle?.includes("Bitcoin Live Test")));
+  ok("draft show needs bootstrap", showNeedsDraftBootstrap({ ...show, status: "draft", seoTitle: seeded.seoTitle, seoDescription: seeded.seoDescription, thumbnailVariant: "pending" }));
+  ok("scheduled without brief needs bootstrap", showNeedsDraftBootstrap({ ...show, status: "scheduled", seoTitle: "T", seoDescription: "D", thumbnailVariant: null }));
+  ok("preview show skips bootstrap", !showNeedsDraftBootstrap({ ...show, status: "preview", seoTitle: "T", seoDescription: "D", thumbnailVariant: "brief_ready" }));
+
+  const { buildShowDraftIntel, buildSeoTitles } = await import("@/lib/showDraftIntel");
+  const intel = buildShowDraftIntel(
+    { ...show, title: "Bitcoin Weekly · Alt Season Playbook", format: "stream" },
+    chento,
+    ["BITCOIN LIVE TRADING: Prop Firm Challenge | EP 1"]
+  );
+  ok("intel extracts bitcoin topic", intel.topics.includes("bitcoin"));
+  ok("chento seo title uses live trading style", /BITCOIN LIVE TRADING/i.test(buildSeoTitles(
+    { ...show, title: "Bitcoin Weekly · Alt Season Playbook" },
+    chento,
+    intel
+  )[0]));
+
+  const { draftReplyForComment, isStaleGenericDraft } = await import("@/lib/commentIntel");
+  const saylorShow = {
+    title: saylorViral,
+    format: "banter" as const,
+    guestName: null,
+    liveChapters: [
+      { atSec: 2052, label: "MSTR premium vs BTC spot", status: "draft" as const },
+      { atSec: 3420, label: "Community Q&A", status: "draft" as const },
+    ],
+  };
+  const tsReply = draftReplyForComment(
+    saylorShow,
+    { commentText: "Can you timestamp when you talked about MSTR premium vs BTC spot?" },
+    banterCh
+  );
+  ok("banter timestamp reply cites chapters", /34:12|mstr premium|chapters/i.test(tsReply));
+  ok("banter reply avoids ai filler", !/great question|solid point|touched on this during the live q&a/i.test(tsReply));
+  const longReply = draftReplyForComment(
+    saylorShow,
+    { commentText: "Saylor buying again is literally the signal. Why isn't everyone long?" },
+    banterCh
+  );
+  ok("banter long reply addresses comment", /long|saylor|size|mstr/i.test(longReply));
+  ok("stale draft detected", isStaleGenericDraft("Great question — we broke down the Saylor angle live on this stream."));
+  ok("fresh draft not stale", !isStaleGenericDraft("34:12 — MSTR premium vs BTC spot is in the chapters"));
+
+  const { isLegitAnalyticsSnapshot, purgeFakeAnalytics } = await import("@/lib/store");
+  ok("demo_seed analytics rejected", !isLegitAnalyticsSnapshot({
+    id: "x",
+    showRunId: show.id,
+    snapshotType: "peak_viewers",
+    concurrentViewers: 986,
+    views24h: null,
+    metadata: { source: "demo_seed" },
+    capturedAt: new Date().toISOString(),
+  }));
+  ok("youtube_api analytics accepted", isLegitAnalyticsSnapshot({
+    id: "y",
+    showRunId: show.id,
+    snapshotType: "views_24h",
+    concurrentViewers: null,
+    views24h: 42000,
+    metadata: { source: "youtube_api", metric: "total_views" },
+    capturedAt: new Date().toISOString(),
+  }));
+  await purgeFakeAnalytics(show.id);
+
   console.log("\n=== results ===");
   console.log(`passed: ${passed}`);
   if (failed > 0) {

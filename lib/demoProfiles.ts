@@ -317,7 +317,6 @@ Hosted by Chento · BTC structure, alt rotations, and levels for the week ahead.
     seoTags: ["bitcoin", "alt season", "crypto live", "trading", "chento trades", "btc", "altcoins"],
     doneTaskIds: PRE_SHOW_DONE,
     withCrossPosts: true,
-    withAnalytics: true,
   },
   {
     channelSlug: "chento",
@@ -337,6 +336,30 @@ Hosted by Chento · BTC structure, alt rotations, and levels for the week ahead.
   },
   {
     channelSlug: "banter",
+    title: "Michael Saylor Did It & Bitcoin's about to Pump! (Here's Why)",
+    format: "banter",
+    pipeline: "live",
+    status: "completed",
+    scheduledAt: daysAgo(0),
+    guestName: null,
+    dealId: null,
+    seoTitle: "Michael Saylor Did It & Bitcoin's about to Pump! (Here's Why) | Crypto Banter",
+    seoDescription: `Michael Saylor / MSTR moves and what they mean for Bitcoin — live Banter breakdown.
+
+Hosted by Chento Trades · macro, liquidity, and community Q&A.`,
+    seoTags: ["saylor", "bitcoin", "mstr", "macro", "banter", "crypto", "live"],
+    doneTaskIds: POST_DONE,
+    withComments: true,
+    withCrossPosts: true,
+    liveChapters: [
+      { atSec: 0, label: "Cold open · Saylor headline" },
+      { atSec: 900, label: "MSTR premium vs BTC spot" },
+      { atSec: 2052, label: "Alt season if BTC pumps?" },
+      { atSec: 3420, label: "Community Q&A" },
+    ],
+  },
+  {
+    channelSlug: "banter",
     title: "Banter Live · King Azoulay on Memecoins & Macro",
     format: "banter",
     pipeline: "live",
@@ -352,7 +375,6 @@ Hosted by Chento Trades · live Q&A in chat.`,
     doneTaskIds: LIVE_DONE,
     withComments: true,
     withCrossPosts: true,
-    withAnalytics: true,
     liveChapters: [
       { atSec: 0, label: "Cold open · guest intro" },
       { atSec: 720, label: "Memecoin cycle debate" },

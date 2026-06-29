@@ -1,6 +1,7 @@
 import { getDb, runWithDb } from "@/lib/db";
 import { generateCrossPosts } from "@/lib/adapters/content";
 import { DEMO_SHOWS, CHANNEL_PROFILES, profileBySlug } from "@/lib/demoProfiles";
+import type { ShowRun } from "@/lib/types";
 
 export function demoSeedEnabled(): boolean {
   return process.env.YTX_DEMO_SEED === "true";
@@ -60,7 +61,6 @@ async function seedShowExtras(
     listChannels,
     seedCommentQueue,
     upsertIgCarousel,
-    addAnalyticsSnapshot,
     upsertCrossPosts,
   } = await storeApi();
   const channels = await listChannels();
@@ -99,26 +99,10 @@ async function seedShowExtras(
     await upsertCrossPosts(posts);
   }
 
-  if (def.withAnalytics) {
-    const now = new Date().toISOString();
-    await addAnalyticsSnapshot({
-      showRunId: showId,
-      snapshotType: "waiting_room",
-      concurrentViewers: def.status === "live" ? 842 : 312,
-      views24h: null,
-      metadata: { source: "demo_seed" },
-      capturedAt: now,
-    });
-    if (def.status === "live") {
-      await addAnalyticsSnapshot({
-        showRunId: showId,
-        snapshotType: "peak_viewers",
-        concurrentViewers: 1247,
-        views24h: null,
-        metadata: { source: "demo_seed" },
-        capturedAt: now,
-      });
-    }
+  if (def.withComments && def.status === "completed") {
+    const { ensureReplayCommentQueue } = await import("@/lib/replayComments");
+    const showRow = { ...show, status: def.status as ShowRun["status"] };
+    await ensureReplayCommentQueue(showRow as ShowRun, channel ?? null);
   }
 }
 

@@ -18,6 +18,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       seoTitle: pack.titles[0] ?? null,
       seoDescription: pack.description,
       seoTags: pack.tags,
+      thumbnailVariant: "brief_ready",
     });
     await markTasksDone(id, ACTION_TASKS.seoPack);
     return NextResponse.json({ pack, show: updated });
