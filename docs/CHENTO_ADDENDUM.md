@@ -41,11 +41,13 @@ Tasks with `needsQc: true` in checklist config show the QC panel in the show boa
 
 ## 5. Over-deliver checklist
 
-- Full lifecycle button (Banter dry-run tested)
-- Local Clips pipeline (Scout libs copied)
-- Real YouTube Data API when OAuth connected
-- Track read-only on roster
-- EndScreenDB + post-show SEO pass
+- ✅ Full lifecycle button (Banter dry-run tested · `npm run test:banter`)
+- ✅ Local Clips pipeline (Scout libs copied)
+- ✅ YouTube Data API · API key read fallback + OAuth write paths when connected
+- ✅ Track read-only on roster
+- ✅ EndScreenDB + post-show SEO pass
+- ✅ Vercel demo + GitHub repo (see `SPEC_COVERAGE.md` · build spec page 7)
+- 🟡 DK: ops creds · first real show · validate Auto labels (Chento 29 Jun)
 
 ## Source
 

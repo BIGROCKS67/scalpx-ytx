@@ -7,6 +7,8 @@
 | **Repo** | `/Users/jackrockell/Desktop/FLOW X YT AUTOMATION` |
 | **Scout adapters** | `/Users/jackrockell/Desktop/FLOWX SCOUT` (HTTP only) |
 | **Local URL** | http://localhost:3001/ytx |
+| **Demo (Vercel)** | https://scalpx-ytx.vercel.app/ytx |
+| **GitHub** | https://github.com/BIGROCKS67/scalpx-ytx |
 | **Ship** | 3 July 2026 |
 
 ## One-click start
@@ -56,9 +58,10 @@ Run Scout on `:3000`, YTX on `:3001`. Adapters call Clips · Content · Deals ·
 
 | File | Purpose |
 |------|---------|
+| `docs/SCALPX_YTX_BUILD_SPEC.html` | Build spec · **page 7 = DK handoff** |
+| `SPEC_COVERAGE.md` | Task-by-task done matrix |
 | `YTX_BUILD_PLAN.md` | Master build plan + sprint |
 | `SCOUT_INVENTORY.md` | Everything reusable from Scout |
-| `SPEC_COVERAGE.md` | Honest spec vs built matrix |
 
 ## Hard rules
 
