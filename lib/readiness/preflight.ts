@@ -106,8 +106,8 @@ export async function preflightShowRun(
   }
 
   const clips = await checkClipsReadiness();
-  const skipClipsGate = isPreviewMode(mode) && isServerlessDemoHost();
-  if ((mode === "full" || mode === "preview") && !clips.ready && !skipClipsGate) {
+  const skipClipsGate = isPreviewMode(mode);
+  if (mode === "full" && !clips.ready) {
     for (const b of clips.blockers) {
       blockers.push({
         code: b.code,
@@ -116,17 +116,22 @@ export async function preflightShowRun(
       });
     }
   }
+  if (isPreviewMode(mode) && !clips.ready) {
+    for (const b of clips.blockers) {
+      warnings.push(`${b.message} — Shorts export skipped in preview (${b.fix})`);
+    }
+  }
   if (mode === "metadata_only") {
     warnings.push("Metadata-only run — clip tasks will not complete");
   }
   if (isPreviewMode(mode)) {
     warnings.push(
-      "Preview run — full pipeline locally · nothing is published to YouTube until channel OAuth is connected"
+      "Preview run — SEO, drafts, and checklist run locally · nothing is published to YouTube until channel OAuth is connected"
     );
     if (!youtubeWrite) {
       warnings.push("YouTube OAuth not connected — metadata and comments stay as local drafts");
     }
-    if (skipClipsGate) {
+    if (skipClipsGate && clips.ready && isServerlessDemoHost()) {
       warnings.push(
         "Demo host (Vercel) — Shorts export skipped here · run Preview on local :3001 for MP4 clips, or wire Scout"
       );

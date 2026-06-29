@@ -66,7 +66,7 @@ export function ReadinessPanel({
           {mode === "preview"
             ? host?.serverless
               ? "Ready for preview on demo host — API key + linked video. Clips export skipped here."
-              : "Ready for preview run — API key + linked video + local clips runtime. OAuth not required."
+              : "Ready for preview — API key + linked video. OAuth not required; Shorts export optional if yt-dlp/ffmpeg installed."
             : "All required checks passed for a full end-to-end run."}
         </p>
       )}

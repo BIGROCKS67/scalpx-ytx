@@ -376,7 +376,7 @@ export async function runShowLifecycle(
           metadata: { exportUrls: batch.exportUrls },
         });
         steps.push({ step: "clips", ok: true, detail: batch.message, proof: "verified" });
-      } else if (serverlessPreview) {
+      } else if (serverlessPreview || preview) {
         await logVerification({
           showRunId: showId,
           channelId: channel.id,
@@ -384,14 +384,20 @@ export async function runShowLifecycle(
           ok: true,
           source: "local_only",
           videoId: show.youtubeVideoId,
-          detail: batch.message ?? "Skipped on demo host",
+          detail:
+            batch.message ??
+            (serverlessPreview
+              ? "Skipped on demo host"
+              : "Preview — Shorts export skipped (clips runtime missing or export failed)"),
         });
         steps.push({
           step: "clips",
           ok: true,
           detail:
             batch.message ??
-            "Skipped on demo host — Shorts export on local :3001 or via Scout",
+            (serverlessPreview
+              ? "Skipped on demo host — Shorts export on local :3001 or via Scout"
+              : "Preview — Shorts export skipped · install yt-dlp + ffmpeg for MP4 clips"),
           proof: "skipped",
         });
       } else {
@@ -412,12 +418,22 @@ export async function runShowLifecycle(
         });
       }
     } catch (e) {
-      steps.push({
-        step: "clips",
-        ok: false,
-        detail: e instanceof Error ? e.message : "failed",
-        proof: "blocked",
-      });
+      const detail = e instanceof Error ? e.message : "failed";
+      if (preview) {
+        steps.push({
+          step: "clips",
+          ok: true,
+          detail: `Preview — Shorts export skipped (${detail})`,
+          proof: "skipped",
+        });
+      } else {
+        steps.push({
+          step: "clips",
+          ok: false,
+          detail,
+          proof: "blocked",
+        });
+      }
     }
   } else if (mode === "metadata_only") {
     steps.push({ step: "clips", ok: true, detail: "skipped (metadata-only run)", proof: "skipped" });
@@ -516,10 +532,7 @@ export async function runShowLifecycle(
       !s.ok
   );
 
-  const clipsOk =
-    mode === "metadata_only" ||
-    proof.clipsExportCount > 0 ||
-    (preview && isServerlessDemoHost());
+  const clipsOk = mode === "metadata_only" || proof.clipsExportCount > 0 || preview;
 
   const runOk = preview
     ? failedSteps.length === 0 && clipsOk
