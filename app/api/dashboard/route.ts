@@ -11,6 +11,8 @@ import { getDashboardBundle } from "@/lib/store";
 import { automationStats } from "@/lib/checklistTasks";
 import { CHECKLIST_TASKS } from "@/lib/checklistTasks";
 import { fetchYoutubeDashboardAnalytics } from "@/lib/youtube/dashboardAnalytics";
+import { buildTrendStreamInsights } from "@/lib/insights/trendStream";
+import { filterActiveChannels } from "@/lib/activeChannels";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,7 +34,9 @@ export async function GET() {
 
     const attention = buildAttentionQueue(bundle.shows, bundle.channels, bundle.checklistByShow);
     const counts = dashboardCounts(bundle.shows, attention, bundle.checklistByShow);
-    const youtube = await fetchYoutubeDashboardAnalytics(4);
+    const youtube = await fetchYoutubeDashboardAnalytics(8);
+    const activeChannels = filterActiveChannels(bundle.channels);
+    const trends = buildTrendStreamInsights(youtube, activeChannels, bundle.shows);
 
     return NextResponse.json({
       ...bundle,
@@ -44,6 +48,7 @@ export async function GET() {
       ship: shipMetrics(allItems),
       counts,
       youtube,
+      trends,
     });
   } catch (e) {
     console.error("[dashboard]", e);

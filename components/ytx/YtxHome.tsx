@@ -11,6 +11,8 @@ import { ContextHeader } from "@/components/shell/ContextHeader";
 import { Badge, Button, SkeletonStatTile, StatTile } from "@/components/ui";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { YoutubeAnalyticsSection } from "@/components/ytx/YoutubeAnalyticsSection";
+import { TrendStreamSection } from "@/components/ytx/TrendStreamSection";
+import type { TrendStreamInsights } from "@/lib/insights/trendStream";
 import type { YoutubeDashboardAnalytics } from "@/lib/youtube/dashboardAnalytics";
 
 type DashboardPayload = {
@@ -23,6 +25,7 @@ type DashboardPayload = {
   ship: { autoTotal: number; autoDone: number; shipTarget: number };
   counts: { qcPending: number; previewRuns: number; actionable: number; totalQcTasks: number };
   youtube: YoutubeDashboardAnalytics;
+  trends: TrendStreamInsights;
 };
 
 export function YtxHome() {
@@ -83,8 +86,10 @@ export function YtxHome() {
 
       <ContextHeader
         title="Overview"
-        subtitle="YouTube stats, recent uploads, and lifecycle ops"
+        subtitle="Viral trends, stream ideas, YouTube stats, and lifecycle ops"
       />
+
+      <TrendStreamSection trends={data?.trends} loading={loading} />
 
       <YoutubeAnalyticsSection analytics={data?.youtube} loading={loading} />
 

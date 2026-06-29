@@ -15,6 +15,8 @@ import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 export function ShowsView() {
   const searchParams = useSearchParams();
   const preChannel = searchParams.get("channel");
+  const preTitle = searchParams.get("title");
+  const preFormat = searchParams.get("format") as ShowFormat | null;
   const [channels, setChannels] = useState<YtChannel[]>([]);
   const [shows, setShows] = useState<ShowRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,8 +24,10 @@ export function ShowsView() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     channelId: preChannel ?? "",
-    title: "",
-    format: "stream" as ShowFormat,
+    title: preTitle ?? "",
+    format: (preFormat && ["banter", "stream", "education"].includes(preFormat)
+      ? preFormat
+      : "stream") as ShowFormat,
     pipeline: "live" as ShowPipeline,
     guestName: "",
     dealId: "",
@@ -45,9 +49,14 @@ export function ShowsView() {
     setForm((f) => ({
       ...f,
       channelId: f.channelId || preChannel || chRes.data.channels[0]?.id || "",
+      title: f.title || preTitle || "",
+      format:
+        f.title || !preFormat
+          ? f.format
+          : (["banter", "stream", "education"].includes(preFormat) ? preFormat : f.format) as ShowFormat,
     }));
     setLoading(false);
-  }, [preChannel]);
+  }, [preChannel, preTitle, preFormat]);
 
   useEffect(() => {
     void load();
