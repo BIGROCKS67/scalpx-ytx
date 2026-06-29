@@ -151,10 +151,7 @@ export async function syncRosterFromYoutube(): Promise<RosterSyncResult> {
   for (const channel of channels) {
     try {
       const youtubeId = await resolveYoutubeId(channel.slug, key);
-      if (!youtubeId) {
-        result.errors.push(`${channel.slug}: no YouTube handle/ID configured`);
-        continue;
-      }
+      if (!youtubeId) continue;
 
       const payload = await fetchChannel(youtubeId, key);
       if (!payload) {
