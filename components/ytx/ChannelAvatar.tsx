@@ -17,18 +17,20 @@ export function ChannelAvatar({
   size?: keyof typeof SIZE_CLASS;
 }) {
   const name = channel?.displayName ?? "Channel";
-  const className = `ytx-channel-avatar ${SIZE_CLASS[size]}`;
+  const wrapClass = `ytx-channel-avatar-wrap ${SIZE_CLASS[size]}`;
 
   if (channel?.avatarUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={channel.avatarUrl} alt="" className={className} loading="lazy" />
+      <span className={wrapClass} aria-hidden>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={channel.avatarUrl} alt="" className="ytx-channel-avatar-img" loading="lazy" />
+      </span>
     );
   }
 
   return (
-    <div className={`ytx-show-card-avatar ${className}`} aria-hidden>
+    <span className={`ytx-channel-avatar-wrap ytx-channel-avatar-fallback ${SIZE_CLASS[size]}`} aria-hidden>
       {channelInitial(name)}
-    </div>
+    </span>
   );
 }
