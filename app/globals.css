@@ -2074,7 +2074,7 @@ body {
     right: 0;
     z-index: 45;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.25rem;
     padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
     background: rgba(5, 7, 5, 0.96);
@@ -2089,7 +2089,7 @@ body {
     align-items: center;
     justify-content: center;
     text-align: center;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     line-height: 1.2;
     padding: 0.35rem 0.25rem;
