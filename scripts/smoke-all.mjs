@@ -11,6 +11,7 @@ function run(cmd, args, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       stdio: "inherit",
+      shell: process.platform === "win32",
       env: { ...process.env, ...env },
     });
     child.on("error", reject);
@@ -59,6 +60,7 @@ async function main() {
   console.log("\n→ Starting dev server for API smoke…");
   const server = spawn("npm", ["run", "dev"], {
     stdio: ["ignore", "pipe", "pipe"],
+    shell: process.platform === "win32",
     env: process.env,
   });
 
